@@ -16,7 +16,11 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.4.6.0", Title = "Pencere başlığında karakter adı",
+    internal static readonly Entry[] All = { new Entry { Version = "3.5.0.0", Title = "Silkroad R Studio",
+        Items = new[] { "Program adı Silkroad R Studio oldu; pencere başlığı, üst çubuk ve dosya adı (SilkroadRStudio.exe) buna göre değişti.",
+        "Güncellemeler artık bu projenin kendi GitHub sürümlerinden gelir ve yeni bir yayıncı anahtarıyla imzalanır. Eski New Era Memory Select sürümleri bu zincire güncellenemez; bir kez elle indirmek gerekir.",
+        "Ayarlar %LOCALAPPDATA%\\SilkroadRStudio klasörüne taşındı; eski klasördeki ayarlar ilk açılışta otomatik kopyalanır." } },
+        new Entry { Version = "3.4.6.0", Title = "Pencere başlığında karakter adı",
         Items = new[] { "Pencere başlığı karakter adıyla başlar (örn. Rikimaru - New Era · Memory Select ...); iki hesap açıkken görev çubuğunda hangisinin hangisi olduğu görünür." } },
         new Entry { Version = "3.4.5.0", Title = "Tüm dünya için yol haritası ve oda oda tarama", Items = new[] { "Tüm dünya yol ağı: duvar, çit ve yapı sınırları ile merdiven/köprü yüzeyleri haritaya işlendi; rota duvara çarpmadan en kısa yoldan hesaplanır.",
         "18 dungeonun hepsi için rota girişin kendisinde biter (son boşluk 5 birimin altında); Hotan sarayı (D12) şehir içinden, D01–D05 Hotan'dan doğrudan kuzeye yürür.",

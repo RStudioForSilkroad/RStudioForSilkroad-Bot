@@ -20,15 +20,15 @@ $text=[regex]::Replace($text,'AssemblyFileVersion\("[^"]+"\)',"AssemblyFileVersi
 [IO.File]::WriteAllText($ai,$text,(New-Object Text.UTF8Encoding($true)))
 # derleme
 $rel=Join-Path $root 'release'; New-Item -ItemType Directory -Force $rel | Out-Null
-$exe=Join-Path $rel 'NewEra-MemorySelect.exe'
+$exe=Join-Path $rel 'SilkroadRStudio.exe'
 & (Join-Path $root 'tools\build.ps1') -Out $exe | Select-Object -Last 1
 if(!(Test-Path $exe)){throw 'Derleme başarısız.'}
 # manifest
 $tag="v$Version"
-$url="https://github.com/$Repo/releases/download/$tag/NewEra-MemorySelect.exe"
+$url="https://github.com/$Repo/releases/download/$tag/SilkroadRStudio.exe"
 $hash=(Get-FileHash $exe -Algorithm SHA256).Hash.ToUpperInvariant()
 $size=(Get-Item $exe).Length
-$product='Rikimaru.NewEra.MemorySelect'
+$product='SilkroadRStudio'
 $canon=[Text.Encoding]::UTF8.GetBytes("$product`n$Version`n$url`n$hash`n$size`n")
 $rsa=New-Object Security.Cryptography.RSACryptoServiceProvider
 $rsa.FromXmlString([IO.File]::ReadAllText($priv))
@@ -42,5 +42,5 @@ $manifest=[ordered]@{Product=$product;Version=$Version;Url=$url;Sha256=$hash;Siz
 Write-Output ""
 Write-Output "Hazır: $rel"
 Write-Output "GitHub'da yeni Release oluştur: etiket (tag) = $tag"
-Write-Output "Şu iki dosyayı Release'e yükle: NewEra-MemorySelect.exe ve manifest.json"
+Write-Output "Şu iki dosyayı Release'e yükle: SilkroadRStudio.exe ve manifest.json"
 Write-Output "Uygulamadaki güncelleme adresi: https://github.com/$Repo/releases/latest/download/manifest.json"

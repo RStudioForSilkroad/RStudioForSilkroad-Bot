@@ -1,4 +1,4 @@
-# New Era Memory Select
+# Silkroad R Studio
 
 New Era için C# / .NET Framework ile yazılmış bot. SQL veritabanı kullanmaz: ayarlar ve harita tabloları JSON, navigasyon ağı sıkıştırılmış ikili veridir.
 
@@ -6,7 +6,7 @@ New Era için C# / .NET Framework ile yazılmış bot. SQL veritabanı kullanmaz
 
 ## İndirme ve güncelleme
 
-Hazır EXE dosyası [Releases](https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest) sayfasındadır. `NewEra-MemorySelect.exe` dosyasını indirip açın.
+Hazır EXE dosyası [Releases](https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest) sayfasındadır. `SilkroadRStudio.exe` dosyasını indirip açın.
 
 Program yeni sürümleri kendisi kontrol eder, indirir, imzasını doğrular ve kendini günceller. Güncelleme adresi varsayılan olarak ayarlıdır; "Güncelleme/Kılavuz" sekmesinden değiştirilebilir.
 
@@ -29,7 +29,7 @@ Windows'ta .NET Framework C# derleyicisi (`csc.exe`) kurulu olmalıdır. Python 
 powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\build.ps1
 ```
 
-Çıktı: `build\NewEra-MemorySelect.exe`
+Çıktı: `build\SilkroadRStudio.exe`
 
 Derleme ayarları (gömülü kaynaklar, derleyici seçenekleri) `tools\common.ps1` içinde tek yerdedir; `build.ps1` ve `run-tests.ps1` bunu paylaşır. `src\` altına eklenen her `.cs` dosyası otomatik derlenir.
 
@@ -48,14 +48,14 @@ Betik kontrol programını derleyip çalıştırır. Sonuç `tests\Test-Sonucu.t
    ```powershell
    .\tools\2-yayin-hazirla.ps1 -Version 3.4.7.0 -Repo gabbybilisim-cloud/NewEra-Client
    ```
-   Betik sürüm numarasını ayarlar, derler, imzalar ve `release\` klasörüne `NewEra-MemorySelect.exe` ile `manifest.json` dosyalarını koyar.
+   Betik sürüm numarasını ayarlar, derler, imzalar ve `release\` klasörüne `SilkroadRStudio.exe` ile `manifest.json` dosyalarını koyar.
 3. GitHub'da `v3.4.7.0` gibi bir etiketle yeni Release oluşturup bu iki dosyayı yükleyin.
 
 Güncellemeler RSA imzasıyla doğrulanır. Doğrulama genel anahtarı `data\updates-public-key.xml` dosyasındadır ve programa gömülür. Varsayılan güncelleme adresi `UpdateTrust.DefaultManifestUrl` sabitindedir ([src/AutoUpdate.cs](src/AutoUpdate.cs)). Eski yazarın (`by-rikimaru`) sürümleri başka anahtarla imzalıdır; bu programda reddedilir ve eski adrese işaret eden kayıtlı ayarlar açılışta yeni adrese taşınır.
 
 ## phBot rota eklentisi
 
-`phbot\RikimaruGrimRoutes.py` dosyasını phBot `Plugins` klasörüne koyun. Canlı rota üretimi phBot içinde oyuna giriş yapılmasını gerektirir.
+`phbot\SilkroadRStudioGrimRoutes.py` dosyasını phBot `Plugins` klasörüne koyun. Canlı rota üretimi phBot içinde oyuna giriş yapılmasını gerektirir.
 
 ## Bilinen durum
 

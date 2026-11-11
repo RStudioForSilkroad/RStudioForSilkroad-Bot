@@ -3,7 +3,7 @@
 # Embedded resources: source path -> resource name used by the program.
 function Get-ResourceMap {
     $map = [ordered]@{
-        'assets/Rikimaru.ico'                         = 'Silkroad.ico'
+        'assets/SilkroadRStudio.ico'                         = 'Silkroad.ico'
         'assets/Explorer-Harita-Sade.jpg'             = 'explorer-52.jpg'
         'assets/Dunya-Haritasi.jpg'                   = 'world-map.jpg'
         'assets/Dunya-Oyun-Haritasi.jpg'              = 'world-map-game.jpg'
@@ -48,7 +48,7 @@ function Invoke-Csc {
         "/out:$Out", "/main:$Main",
         '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll',
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll',
-        '/win32icon:assets/Rikimaru.ico'
+        '/win32icon:assets/SilkroadRStudio.ico'
     )
     $resources = Get-ResourceMap
     foreach ($path in $resources.Keys) {

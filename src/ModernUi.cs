@@ -155,8 +155,7 @@ sealed partial class MemorySelectV3Form
     void UpdateTitle()
     {
         string name = snapshot == null ? null : snapshot.CharacterName;
-        string title = (string.IsNullOrEmpty(name) ? "" : name + " - ") + "New Era · Memory Select " + Application.ProductVersion +
-            " · by Rikimaru";
+        string title = (string.IsNullOrEmpty(name) ? "" : name + " - ") + AppPaths.AppName + " " + Application.ProductVersion;
         if (Text != title)
             Text = title;
     }

@@ -23,8 +23,7 @@ static class PhBotRoutes
     {
         get
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Rikimaru",
-                "MemorySelectV3", "phbot-routes.json");
+            return Path.Combine(AppPaths.DataRoot, "phbot-routes.json");
         }
     }
 

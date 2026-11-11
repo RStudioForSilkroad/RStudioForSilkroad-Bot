@@ -443,9 +443,8 @@ sealed class V3Settings
     {
         get
         {
-            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Rikimaru",
-                "MemorySelectV3", Environment.GetEnvironmentVariable("RIKIMARU_ACCOUNT") == "1" ? "Account1" :
-                Environment.GetEnvironmentVariable("RIKIMARU_ACCOUNT") == "2" ? "Account2" : "");
+            return Path.Combine(AppPaths.DataRoot, Environment.GetEnvironmentVariable("SRSTUDIO_ACCOUNT") == "1" ? "Account1" :
+                Environment.GetEnvironmentVariable("SRSTUDIO_ACCOUNT") == "2" ? "Account2" : "");
         }
     }
 

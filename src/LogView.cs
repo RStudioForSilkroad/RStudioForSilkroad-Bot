@@ -60,7 +60,7 @@ sealed partial class MemorySelectV3Form
         {
             Safe(delegate
             {
-                using (var dialog = new SaveFileDialog { Filter = "Metin dosyası|*.txt", FileName = "Rikimaru-Log-" +
+                using (var dialog = new SaveFileDialog { Filter = "Metin dosyası|*.txt", FileName = "SilkroadRStudio-Log-" +
                     DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt" })
                 {
                     if (dialog.ShowDialog(this) == DialogResult.OK)

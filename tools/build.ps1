@@ -1,4 +1,4 @@
-﻿param([string]$Out = 'build/NewEra-MemorySelect.exe')
+﻿param([string]$Out = 'build/SilkroadRStudio.exe')
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'common.ps1')
 Set-Location -LiteralPath (Split-Path -Parent $PSScriptRoot)

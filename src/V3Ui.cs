@@ -153,7 +153,7 @@ sealed partial class MemorySelectV3Form : Form
         using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("Silkroad.ico"))
             using (var icon = new Icon(stream))
                 Icon = (Icon)icon.Clone();
-        Text = "New Era · Memory Select " + Application.ProductVersion + " · by Rikimaru";
+        Text = AppPaths.AppName + " " + Application.ProductVersion;
         ClientSize = new Size(1480, 900);
         MinimumSize = new Size(980, 700);
         StartPosition = FormStartPosition.CenterScreen;
@@ -161,7 +161,7 @@ sealed partial class MemorySelectV3Form : Form
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
         var header = new Panel { Dock = DockStyle.Top, Height = 88, Padding = new Padding(8) };
-        var brand = new Label { Text = "by Rikimaru", Dock = DockStyle.Right, Width = 180, TextAlign = ContentAlignment.TopRight,
+        var brand = new Label { Text = AppPaths.AppName, Dock = DockStyle.Right, Width = 220, TextAlign = ContentAlignment.TopRight,
             ForeColor = Color.RoyalBlue, Font = new Font("Segoe UI", 14, FontStyle.Bold | FontStyle.Italic) };
         header.Controls.Add(brand);
         var connection = new FlowLayoutPanel { Location = new Point(8, 8), Size = new Size(1130, 36), WrapContents =

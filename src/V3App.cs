@@ -1065,9 +1065,9 @@ sealed partial class MemorySelectV3Form : Form
             }
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
-            string slot = Environment.GetEnvironmentVariable("RIKIMARU_ACCOUNT");
+            string slot = Environment.GetEnvironmentVariable("SRSTUDIO_ACCOUNT");
             bool unique;
-            using (var instance = new System.Threading.Mutex(false, "Local\\RikimaruAccount_" + (slot ?? "Main"), out unique))
+            using (var instance = new System.Threading.Mutex(false, "Local\\SilkroadRStudioAccount_" + (slot ?? "Main"), out unique))
             {
                 if (slot != null && !unique)
                 {
@@ -1085,7 +1085,7 @@ sealed partial class MemorySelectV3Form : Form
                 Environment.ExitCode = 1;
             }
             else
-                MessageBox.Show(e.Message, "Memory Select V3");
+                MessageBox.Show(e.Message, AppPaths.AppName);
         }
     }
 }

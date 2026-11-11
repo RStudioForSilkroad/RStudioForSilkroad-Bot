@@ -34,7 +34,7 @@ sealed class StagedUpdate
 
 static class UpdateTrust
 {
-    internal const string Product = "Rikimaru.NewEra.MemorySelect";
+    internal const string Product = "SilkroadRStudio";
     internal const string DefaultManifestUrl = "https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest/download/manifest.json";
     // Releases of the original author were signed with a different key; settings that still point there are migrated.
     internal const string LegacyManifestUrl = "https://github.com/by-rikimaru/NewEra/releases/latest/download/manifest.json";
@@ -139,7 +139,7 @@ static class UpdateService
             request.Timeout = 15000;
             request.ReadWriteTimeout = 20000;
             request.AllowAutoRedirect = false;
-            request.UserAgent = "RikimaruMemorySelect/" + UpdateTrust.CurrentVersion;
+            request.UserAgent = "SilkroadRStudio/" + UpdateTrust.CurrentVersion;
             var response = (HttpWebResponse)request.GetResponse();
             int code = (int)response.StatusCode;
             if (code >= 300 && code < 400)
@@ -281,7 +281,7 @@ static class UpdateService
             parentExited = true;
             if (UpdateTrust.Hash(target) != UpdateTrust.Hash(Assembly.GetExecutingAssembly().Location))
                 throw new IOException("Hedef dosya bu uygulamayla eşleşmiyor; değiştirilmedi.");
-            temp = Path.Combine(Path.GetDirectoryName(target), ".rikimaru-update-" + Guid.NewGuid().ToString("N") +
+            temp = Path.Combine(Path.GetDirectoryName(target), ".silkroadrstudio-update-" + Guid.NewGuid().ToString("N") +
                 ".tmp");
             backup = target + ".previous.exe";
             File.Copy(job.StagedExe, temp, false);

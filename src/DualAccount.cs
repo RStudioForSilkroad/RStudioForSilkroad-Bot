@@ -35,7 +35,7 @@ sealed partial class MemorySelectV3Form
     {
         ReleaseClientClaim();
         bool created;
-        var claim = new Mutex(false, "Local\\RikimaruClient_" + id, out created);
+        var claim = new Mutex(false, "Local\\SilkroadRStudioClient_" + id, out created);
         if (!created)
         {
             claim.Dispose();
@@ -46,12 +46,12 @@ sealed partial class MemorySelectV3Form
 
     void BuildDualAccount()
     {
-        string account = Environment.GetEnvironmentVariable("RIKIMARU_ACCOUNT");
+        string account = Environment.GetEnvironmentVariable("SRSTUDIO_ACCOUNT");
         if (account == "1" || account == "2")
         {
             Text += " · Hesap " + account;
             int id;
-            if (int.TryParse(Environment.GetEnvironmentVariable("RIKIMARU_GAME_PID"), out id))
+            if (int.TryParse(Environment.GetEnvironmentVariable("SRSTUDIO_GAME_PID"), out id))
                 foreach (ProcessItem item in processes.Items)
                     if (item.Id == id)
                     {
@@ -187,8 +187,8 @@ sealed partial class MemorySelectV3Form
     {
         var info = new ProcessStartInfo(Application.ExecutablePath) { UseShellExecute = false, WorkingDirectory =
             AppDomain.CurrentDomain.BaseDirectory };
-        info.EnvironmentVariables["RIKIMARU_ACCOUNT"] = slot.ToString();
-        info.EnvironmentVariables["RIKIMARU_GAME_PID"] = id.ToString();
+        info.EnvironmentVariables["SRSTUDIO_ACCOUNT"] = slot.ToString();
+        info.EnvironmentVariables["SRSTUDIO_GAME_PID"] = id.ToString();
         Process.Start(info);
     }
 }

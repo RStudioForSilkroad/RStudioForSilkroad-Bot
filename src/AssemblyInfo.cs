@@ -1,7 +1,7 @@
 ﻿using System.Reflection;
 
-[assembly: AssemblyTitle("New Era Memory Select")]
-[assembly: AssemblyProduct("Rikimaru.NewEra.MemorySelect")]
-[assembly: AssemblyCompany("by Rikimaru")]
-[assembly: AssemblyVersion("3.4.6.0")]
-[assembly: AssemblyFileVersion("3.4.6.0")]
+[assembly: AssemblyTitle("Silkroad R Studio")]
+[assembly: AssemblyProduct("SilkroadRStudio")]
+[assembly: AssemblyCompany("Silkroad R Studio")]
+[assembly: AssemblyVersion("3.5.0.0")]
+[assembly: AssemblyFileVersion("3.5.0.0")]

@@ -353,12 +353,12 @@ class V3Checks
         var repair = S(true, c);
         repair.MinDurability = 4;
         A(V2Rules.NeedsRepair(repair), "Repair <=4 preserved");
-        string originalAccount = Environment.GetEnvironmentVariable("RIKIMARU_ACCOUNT");
-        Environment.SetEnvironmentVariable("RIKIMARU_ACCOUNT", "1");
+        string originalAccount = Environment.GetEnvironmentVariable("SRSTUDIO_ACCOUNT");
+        Environment.SetEnvironmentVariable("SRSTUDIO_ACCOUNT", "1");
         string profile1 = V3Settings.PathName;
-        Environment.SetEnvironmentVariable("RIKIMARU_ACCOUNT", "2");
+        Environment.SetEnvironmentVariable("SRSTUDIO_ACCOUNT", "2");
         A(profile1 != V3Settings.PathName, "Account settings paths isolated");
-        Environment.SetEnvironmentVariable("RIKIMARU_ACCOUNT", originalAccount);
+        Environment.SetEnvironmentVariable("SRSTUDIO_ACCOUNT", originalAccount);
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         var form = (Form)Activator.CreateInstance(typeof(MemorySelectV3Form), true);
@@ -529,7 +529,7 @@ class V3Checks
             {
                 Product = UpdateTrust.Product,
                 Version = "3.0.5.0",
-                Url = "https://example.test/NewEra-MemorySelect.exe",
+                Url = "https://example.test/SilkroadRStudio.exe",
                 Sha256 = new string('A', 64),
                 Size = 11087360
             };

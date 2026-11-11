@@ -7,7 +7,7 @@ import QtBind
 from phBot import generate_script, get_position, log
 
 
-name = 'Rikimaru Grim Route Export'
+name = 'Silkroad R Studio Grim Route Export'
 gui = QtBind.init(__name__, name)
 QtBind.createLabel(gui, 'Exports routes from your current position. Stay in the same spot during export.', 12, 12)
 QtBind.createButton(gui, 'start_export', 'Export all 18 Grim routes', 12, 40)
@@ -26,7 +26,7 @@ destinations = [
     ('D15', 22916, -528.3, -396.3), ('D16', 23444, 2594.2, -49.0),
     ('D17', 26029, 7484.0, 1754.0), ('D18', 23204, 5613.9, -309.2),
 ]
-directory = os.path.join(os.environ['LOCALAPPDATA'], 'Rikimaru', 'MemorySelectV3')
+directory = os.path.join(os.environ['LOCALAPPDATA'], 'SilkroadRStudio')
 output = os.path.join(directory, 'phbot-routes.json')
 source = None
 pending = []
