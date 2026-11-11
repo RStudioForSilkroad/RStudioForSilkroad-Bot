@@ -35,7 +35,7 @@ sealed class StagedUpdate
 static class UpdateTrust
 {
     internal const string Product = "SilkroadRStudio";
-    internal const string DefaultManifestUrl = "https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest/download/manifest.json";
+    internal const string DefaultManifestUrl = "https://github.com/RStudioForSilkroad/RStudioForSilkroad-Bot/releases/latest/download/manifest.json";
     // Releases of the original author were signed with a different key; settings that still point there are migrated.
     internal const string LegacyManifestUrl = "https://github.com/by-rikimaru/NewEra/releases/latest/download/manifest.json";
     internal const long MaxExeSize = 150 * 1024 * 1024;

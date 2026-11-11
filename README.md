@@ -6,7 +6,7 @@ New Era için C# / .NET Framework ile yazılmış bot. SQL veritabanı kullanmaz
 
 ## İndirme ve güncelleme
 
-Hazır EXE dosyası [Releases](https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest) sayfasındadır. `SilkroadRStudio.exe` dosyasını indirip açın.
+Hazır EXE dosyası [Releases](https://github.com/RStudioForSilkroad/RStudioForSilkroad-Bot/releases/latest) sayfasındadır. `SilkroadRStudio.exe` dosyasını indirip açın.
 
 Program yeni sürümleri kendisi kontrol eder, indirir, imzasını doğrular ve kendini günceller. Güncelleme adresi varsayılan olarak ayarlıdır; "Güncelleme/Kılavuz" sekmesinden değiştirilebilir.
 
@@ -46,7 +46,7 @@ Betik kontrol programını derleyip çalıştırır. Sonuç `tests\Test-Sonucu.t
 1. **Bir kez (yapıldı):** `.\tools\1-anahtar-uret.ps1` imza anahtarını üretir. Özel anahtar `%USERPROFILE%\NewEraKeys\updates-private-key.xml` içinde kalır; **yedekleyin ve depoya asla koymayın**. Kaybedilirse mevcut kullanıcılara güncelleme gönderilemez. Betik anahtar zaten varsa üzerine yazmaz.
 2. **Her sürümde:**
    ```powershell
-   .\tools\2-yayin-hazirla.ps1 -Version 3.4.7.0 -Repo gabbybilisim-cloud/NewEra-Client
+   .\tools\2-yayin-hazirla.ps1 -Version 3.4.7.0 -Repo RStudioForSilkroad/RStudioForSilkroad-Bot
    ```
    Betik sürüm numarasını ayarlar, derler, imzalar ve `release\` klasörüne `SilkroadRStudio.exe` ile `manifest.json` dosyalarını koyar.
 3. GitHub'da `v3.4.7.0` gibi bir etiketle yeni Release oluşturup bu iki dosyayı yükleyin.
