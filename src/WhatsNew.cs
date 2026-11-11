@@ -16,7 +16,15 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.6.0.0", Title = "Yeni beyaz arayüz",
+    internal static readonly Entry[] All = { new Entry { Version = "3.7.0.0", Title = "Kervan rotası ve sadeleşen Grim Crypt",
+        Items = new[] { "Yeni Kervan Rotası sayfası: Hotan - Jangan, Jangan - Hotan, Hotan - Donwhang ve Donwhang - Hotan düğmeleri. Düğme scripti yazar ve karakteri hedef tüccar NPC’ye yürütür.",
+        "Kervan rotası yalnızca yoldan hesaplanır: teleport, gemi, Return Scroll ve binek kullanılmaz (ticaret malı ışınlanamaz). Script dosyaları Script klasörüne walk,X,Y,Z satırlarıyla yazılır.",
+        "Tüccar NPC konumları programla gelmez: her şehirde NPC’ye oyunda tıkla, Seçili NPC’yi kaydet de; konum bir kez öğrenilir.",
+        "Grim Crypt sayfası sadeleşti: modlar rozet düğmeleri, tablo daha az sütunlu ve başlıklı, yinelenen Durdur düğmesi kalktı.",
+        "Etkinlik günlüğü kartı kaldırıldı (kayıt events.log dosyasında tutulmaya devam eder).",
+        "Pencereyi kapatırken “Kapatmak istiyor musunuz?” sorusu çıkar; güncelleme sırasında sorulmaz.",
+        "Yeni: yakında unique canavar çıkınca sesli uyarı (Av / Ayarlar → Otomatik bakım)." } },
+        new Entry { Version = "3.6.0.0", Title = "Yeni beyaz arayüz",
         Items = new[] { "Tamamen yenilenmiş beyaz tasarım: açık gri zemin, beyaz kartlar, okunaklı yazı tipleri ve her yerde aynı düğme, tablo ve giriş kutusu stili.",
         "Soldaki menü simgeli ve iki gruba ayrıldı (Çalışma / Araçlar); üst çubukta bağlantı durumu noktası, altta renkli Başlat / Durdur düğmeleri.",
         "Av / Ayarlar sayfası geniş ekranda iki sütun, dar pencerede tek sütun olur; hiçbir kontrol kesilmez. Canlı durum tablosu tam genişliktedir.",

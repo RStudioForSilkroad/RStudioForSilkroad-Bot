@@ -32,6 +32,64 @@ class V3Checks
         }
     }
 
+    static void CaravanChecks()
+    {
+        // Trader NPC store: save, reload, damaged file.
+        string file = Path.Combine(Path.GetTempPath(), "trade-npcs-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var saved = new Dictionary<string, TradeNpc>();
+            saved["Hotan"] = new TradeNpc { Town = "Hotan", X = -2100.5, Y = 1400.25, Model = 1234 };
+            saved["Jangan"] = new TradeNpc { Town = "Jangan", X = 5200, Y = -300, Model = 4321 };
+            TradeRoutes.Save(file, saved);
+            var loaded = TradeRoutes.Load(file);
+            A(loaded.Count == 2 && loaded["Hotan"].X == -2100.5 && loaded["Jangan"].Model == 4321, "Trader NPCs survive save and load");
+            File.WriteAllText(file, "{ not json");
+            A(TradeRoutes.Load(file).Count == 0, "A damaged trader file loads as empty");
+            A(TradeRoutes.Load(file + ".missing").Count == 0, "A missing trader file loads as empty");
+        }
+        finally
+        {
+            try { File.Delete(file); } catch { }
+        }
+        // Routes: the four requested directions exist.
+        A(TradeRoutes.Routes.Length == 4 && TradeRoutes.Routes.Any(r => r[0] == "Hotan" && r[1] == "Jangan") &&
+            TradeRoutes.Routes.Any(r => r[0] == "Jangan" && r[1] == "Hotan") &&
+            TradeRoutes.Routes.Any(r => r[0] == "Hotan" && r[1] == "Donwhang") &&
+            TradeRoutes.Routes.Any(r => r[0] == "Donwhang" && r[1] == "Hotan"), "Hotan-Jangan and Hotan-Donwhang routes both ways");
+        // Script text: header comments, then one walk line per point, culture independent.
+        var start = V2Rules.Center(-2100.4, 1400.6, 3f);
+        var step = new TransitStep { To = new TransitGate { Code = "Harita yolu", X = -2000.2, Y = 1500.7, Height = 5 } };
+        string[] lines = TradeRoutes.Script("Hotan", "Jangan", start, new[] { step }).Replace("\r", "").Split('\n')
+            .Where(l => l.Length > 0).ToArray();
+        A(lines[0].StartsWith("#") && lines[1].Contains("Hotan → Jangan") && lines[2].StartsWith("#"), "Script starts with comments");
+        A(lines[3] == "walk,-2100,1401,3" && lines[4] == "walk,-2000,1501,5", "Script lists way points as walk,X,Y,Z");
+        A(TradeRoutes.ScriptName("Hotan", "Jangan") == "Hotan-Jangan.txt", "Script file name");
+        // Road-only planning: no teleport, ferry or flyship hop, and the flag is released afterwards.
+        var from = V3Data.Dungeons.First(d => d.Mode == "Solo Trial").Entrance();
+        var to = V3Data.Dungeons.Where(d => d.Mode == "Solo Trial").Skip(1).First().Entrance();
+        try
+        {
+            var plan = TradeRoutes.PlanWalk(from, to);
+            A(plan.All(s2 => s2.From == null), "Caravan plan never uses a hop");
+        }
+        catch (InvalidOperationException)
+        {
+            // Not connected by road in the map data: refusing is the correct answer for trade goods.
+        }
+        A(!RoadMesh.WalkOnly, "Road-only flag is released after planning");
+        // Unique alert: once per monster, again after it left and came back; ordinary monsters are ignored.
+        var alert = new UniqueAlert();
+        var boss = new Monster { Uid = 7, Name = "Tiger Girl", Rank = 3, Alive = true };
+        var plain = new Monster { Uid = 8, Name = "Wolf", Rank = 0, Alive = true };
+        A(alert.Observe(new[] { plain }).Count == 0, "Ordinary monsters raise no unique alert");
+        A(alert.Observe(new[] { plain, boss }).SequenceEqual(new[] { "Tiger Girl" }), "A unique is announced when it appears");
+        A(alert.Observe(new[] { plain, boss }).Count == 0, "The same unique is announced only once");
+        A(alert.Observe(new Monster[0]).Count == 0 && alert.Observe(new[] { boss }).Count == 1, "A unique that returns is announced again");
+        boss.Alive = false;
+        A(alert.Observe(new[] { boss }).Count == 0, "A dead unique raises no alert");
+    }
+
     static void A(bool test, string name)
     {
         if (!test)
@@ -388,9 +446,11 @@ class V3Checks
         var poll = (Timer)typeof(MemorySelectV3Form).GetField("poll", flags).GetValue(form);
         poll.Stop();
         var tabs = (TabControl)typeof(MemorySelectV3Form).GetField("tabs", flags).GetValue(form);
-        A(tabs.TabPages.Count == 7 && tabs.TabPages[4].Text == "Çift Hesap · Deneme" && tabs.TabPages[5].Text == "Nanzhang NPC" &&
+        A(tabs.TabPages.Count == 8 && tabs.TabPages[4].Text == "Çift Hesap · Deneme" && tabs.TabPages[5].Text == "Nanzhang NPC" &&
             tabs.TabPages[1].Text == "Explorer Yerleri" && tabs.TabPages[2].Text == "Grim Crypt",
             "Four tabs render including dual-account trial");
+        A(tabs.TabPages[6].Text == "Kervan Rotası", "Caravan page is part of the window");
+        CaravanChecks();
         var dg = (DataGridView)typeof(MemorySelectV3Form).GetField("dungeonGrid", flags).GetValue(form);
         A(dg.Rows.Count == 18, "Solo Trial selected by default");
         foreach (CheckBox check in (List<CheckBox>)typeof(MemorySelectV3Form).GetField("grimModes", flags).GetValue(form))
@@ -651,7 +711,18 @@ class V3Checks
         }
         File.WriteAllLines("tests/Layout-Report.txt", report.Count == 0 ? new[] { "No clipped controls." } : report.ToArray());
         A(report.Count == 0, "No control is cut off at 1120x700, 1480x900 and 1920x1080 (see tests/Layout-Report.txt)");
+        // Closing asks first: declining keeps the window open, confirming closes it.
+        bool asked = false;
+        MemorySelectV3Form.CloseConfirm = (owner, running) =>
+        {
+            asked = true;
+            return false;
+        };
         form.Close();
+        A(asked && form.Visible, "Declining the close question keeps the window open");
+        MemorySelectV3Form.CloseConfirm = (owner, running) => true;
+        form.Close();
+        A(!form.Visible, "Confirming the close question closes the window");
         form.Dispose();
         if (args.Length > 0)
         {

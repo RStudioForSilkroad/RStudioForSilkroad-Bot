@@ -420,7 +420,7 @@ static class DungeonExtensions
 
 sealed class V3Settings
 {
-    public bool ReturnBeforeTravel, TravelMount, AutoEnterGrim;
+    public bool ReturnBeforeTravel, TravelMount, AutoEnterGrim, UniqueAlert;
     public List<string> DungeonQueue = new List<string>();
     public bool QueueReturnScroll = true;
     public bool HideWhatsNew;

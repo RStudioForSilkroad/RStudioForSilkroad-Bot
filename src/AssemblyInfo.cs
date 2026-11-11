@@ -3,5 +3,5 @@
 [assembly: AssemblyTitle("Silkroad R Studio")]
 [assembly: AssemblyProduct("SilkroadRStudio")]
 [assembly: AssemblyCompany("Silkroad R Studio")]
-[assembly: AssemblyVersion("3.6.0.0")]
-[assembly: AssemblyFileVersion("3.6.0.0")]
+[assembly: AssemblyVersion("3.7.0.0")]
+[assembly: AssemblyFileVersion("3.7.0.0")]

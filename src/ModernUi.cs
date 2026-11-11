@@ -15,10 +15,7 @@ sealed partial class MemorySelectV3Form
     readonly ComboBox themePicker = new ComboBox();
     readonly Label themeLabel = new Label { Text = "Vurgu", AutoSize = true };
     Button whatsNewButton;
-    Panel headerPanel, footerPanel, sidebarHost, logHost;
-    Button logToggle;
-    bool logCollapsed, logUserChoice;
-    CardBox logCard;
+    Panel headerPanel, footerPanel, sidebarHost;
 
     void BuildModernTabs()
     {
@@ -147,8 +144,6 @@ sealed partial class MemorySelectV3Form
         BackColor = Ui.Canvas;
         paint(this, Ui.Canvas);
         statPanel.Invalidate();
-        if (logHost != null)
-            logHost.Invalidate(true);
         if (headerPanel != null)
             headerPanel.Invalidate(true);
         dungeonRadar.Invalidate();
@@ -173,46 +168,6 @@ sealed partial class MemorySelectV3Form
         themePicker.Location = new Point(Math.Max(10, right - themePicker.Width), 49);
         themeLabel.Location = new Point(themePicker.Left - themeLabel.PreferredWidth - 8, 53);
         whatsNewButton.Location = new Point(themeLabel.Left - whatsNewButton.Width - 16, 46);
-    }
-
-    void SetLogCollapsed(bool collapsed)
-    {
-        if (logHost == null || collapsed == logCollapsed)
-            return;
-        logCollapsed = collapsed;
-        logHost.Height = collapsed ? 62 : 156;
-        activityView.Visible = !collapsed;
-        logToggle.Text = collapsed ? "Göster" : "Gizle";
-    }
-
-    // The activity log: a white card with its own title and a button that folds it away to give the pages more room.
-    Panel BuildLogHost()
-    {
-        logHost = new Panel { Dock = DockStyle.Bottom, Height = 156, Padding = new Padding(Ui.Pad, 0, Ui.Pad, Ui.Pad) };
-        logCard = new CardBox("Etkinlik günlüğü") { AutoSize = false, Dock = DockStyle.Fill, Margin = new Padding(0) };
-        logCard.Padding = new Padding(Ui.Pad, CardBox.TitleHeight + 4, Ui.Pad, 10);
-        activityView.Dock = DockStyle.Fill;
-        activityView.BorderStyle = BorderStyle.None;
-        activityView.Font = Ui.Mono;
-        logCard.Controls.Add(activityView);
-        logToggle = new Button { Text = "Gizle", Size = new Size(76, 30), Anchor = AnchorStyles.Top | AnchorStyles.Right };
-        logToggle.Location = new Point(logCard.Width - logToggle.Width - 10, 7);
-        Fancy.Kind(logToggle, ButtonKind.Ghost);
-        logToggle.Click += delegate
-        {
-            logUserChoice = true;
-            SetLogCollapsed(!logCollapsed);
-        };
-        // On small windows the log folds away by itself until the user decides otherwise.
-        Resize += delegate
-        {
-            if (!logUserChoice)
-                SetLogCollapsed(ClientSize.Height < 780);
-        };
-        logCard.Controls.Add(logToggle);
-        logToggle.BringToFront();
-        logHost.Controls.Add(logCard);
-        return logHost;
     }
 
     // Header: white bar with the application name on the left and the connection controls next to it.

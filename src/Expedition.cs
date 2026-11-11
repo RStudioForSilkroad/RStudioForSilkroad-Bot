@@ -201,8 +201,8 @@ sealed partial class MemorySelectV3Form
             throw new InvalidOperationException("Otomatik giriş için Solo Trial kaydı seç.");
         excludedRoadCells.Clear();
         useImportedRoad = true;
-        if ((returnBeforeTravel.Checked && ExpeditionRules.Area(snapshot.Player) != ExpeditionRules.Area(d.Entrance())) ||
-            WalkingTooFar(d))
+        if (!caravanWalk && ((returnBeforeTravel.Checked && ExpeditionRules.Area(snapshot.Player) != ExpeditionRules.Area(d.Entrance())) ||
+            WalkingTooFar(d)))
             expeditionPhase = 1;
         else
             BuildRoadRoute(d);
@@ -210,6 +210,8 @@ sealed partial class MemorySelectV3Form
 
     readonly HashSet<int> excludedRoadCells = new HashSet<int>();
     bool useImportedRoad, importedRoadActive;
+    // Set while a caravan route is walked: roads only, no return scroll, no riding.
+    bool caravanWalk;
 
     void BuildRoadRoute(DungeonLocation dungeon)
     {
@@ -246,6 +248,7 @@ sealed partial class MemorySelectV3Form
         var skip = new HashSet<int>(excludedRoadCells);
         foreach (var id in settings.BlockedRoadCells)
             skip.Add(id);
+        RoadMesh.WalkOnly = caravanWalk;
         try
         {
             return ExpeditionRules.Plan(start, goal, skip);
@@ -262,6 +265,10 @@ sealed partial class MemorySelectV3Form
             }
             catch { }
             return ExpeditionRules.Plan(start, goal, excludedRoadCells);
+        }
+        finally
+        {
+            RoadMesh.WalkOnly = false;
         }
     }
 

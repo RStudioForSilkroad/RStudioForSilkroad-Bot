@@ -472,10 +472,12 @@ sealed partial class MemorySelectV3Form : Form
             UpdateService.LaunchWorker(stagedUpdate);
             stagedUpdate = null;
             updateTimer.Stop();
+            SkipClosePrompt = true;
             Close();
         }
         catch (Exception e)
         {
+            SkipClosePrompt = false;
             stagedUpdate = null;
             updateStatus.Text = "Güncelleme başlatılamadı; mevcut sürüm korunuyor: " + e.Message;
             Log(e.ToString());

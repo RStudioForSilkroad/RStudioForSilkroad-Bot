@@ -282,6 +282,7 @@ sealed partial class MemorySelectV3Form : Form
         bool wasReturning = active && snapshot != null && snapshot.PlayerAlive && recovery.Phase == RecoveryPhase.Ready &&
             (returning || operation == OperationMode.Travel || operation == OperationMode.Grim);
         routeWalker.Reset();
+        caravanWalk = false;
         grim.Stop();
         recovery.Stop();
         active = false;
@@ -402,7 +403,7 @@ sealed partial class MemorySelectV3Form : Form
         ReleaseKey();
         if (!reader.IsForeground())
             return false;
-        if (operation == OperationMode.Travel && travelMount.Checked && !EnsureTravelMount(true, now))
+        if (operation == OperationMode.Travel && travelMount.Checked && !caravanWalk && !EnsureTravelMount(true, now))
             return false;
         routeWalker.GridStep = operation == OperationMode.Travel || (operation == OperationMode.Grim && grim.Rooms != null) ?
             4 : 8;
@@ -521,6 +522,7 @@ sealed partial class MemorySelectV3Form : Form
                 }
             }
             readErrorSince = 0;
+            CheckUniques();
             transaction.Observe(snapshot, now);
             UpdateStatPanel(now);
             maintenance.Text = transaction.Message;
@@ -955,6 +957,21 @@ sealed partial class MemorySelectV3Form : Form
             }
         }
         base.WndProc(ref m);
+    }
+
+    // Asked when the user closes the window; the updater and the unit checks skip it.
+    internal static bool SkipClosePrompt;
+    internal static Func<IWin32Window, bool, bool> CloseConfirm = (owner, running) => ConfirmDialog.Ask(owner, "Uygulama kapatılsın mı?",
+        running ? "Otomasyon çalışıyor. Kapatırsanız karakter bulunduğu yerde durur ve işlem yarıda kalır." : "Silkroad R Studio kapatılacak. Ayarlarınız kaydedilir.",
+        "Kapat", "Vazgeç", running);
+
+    protected override void OnFormClosing(FormClosingEventArgs e)
+    {
+        base.OnFormClosing(e);
+        if (e.Cancel || SkipClosePrompt || e.CloseReason != CloseReason.UserClosing)
+            return;
+        if (!CloseConfirm(this, active || grim.Armed || queueRunning))
+            e.Cancel = true;
     }
 
     protected override void OnFormClosed(FormClosedEventArgs e)

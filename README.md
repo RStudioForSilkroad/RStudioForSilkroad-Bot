@@ -10,6 +10,10 @@ Açık renkli, kartlı bir masaüstü arayüzü. Tasarım kuralları [docs/desig
 
 ![Av / Ayarlar](docs/screenshots/av-ayarlar.png)
 
+## Kervan rotası
+
+Kervan Rotası sayfasında Hotan - Jangan, Jangan - Hotan, Hotan - Donwhang ve Donwhang - Hotan düğmeleri vardır. Rota yalnızca yoldan hesaplanır (ticaret malı ışınlanamaz): düğme `walk,X,Y,Z` satırlarından oluşan bir script yazar ve karakteri hedef tüccar NPC'ye yürütür. Tüccar konumları programla gelmez; her şehirde NPC'ye oyunda tıklayıp "Seçili NPC'yi kaydet" demek yeterlidir. Eklentilerin incelenmesi: [docs/xplugins-analizi.md](docs/xplugins-analizi.md).
+
 ## İndirme ve güncelleme
 
 Hazır EXE dosyası [Releases](https://github.com/RStudioForSilkroad/RStudioForSilkroad-Bot/releases/latest) sayfasındadır. `SilkroadRStudio.exe` dosyasını indirip açın.

@@ -399,6 +399,8 @@ sealed class RoadMesh
     const double WaterPenalty = 10;
     // A teleport or ferry costs loading time (and gold): about half a minute of walking, so short walks are preferred over a detour via a town.
     internal static double HopCost = 600;
+    // Trade goods cannot be teleported or shipped: while set, planning uses roads only and never a teleport, ferry or flyship hop.
+    internal static bool WalkOnly;
     internal static double WallPenalty = 40, ObjectPenalty = 1.5;
     // The last stretch to an entrance that the map cannot reach is walked live, which is less reliable: every unit of it counts several times.
     const double LiveGapWeight = 6, ShortcutGap = 240, ShortcutMargin = 600;
@@ -498,7 +500,7 @@ sealed class RoadMesh
                 if (node == bridgeFrom)
                     visit(node, bridgeTo, bridgeCost, null);
                 List<TransitStep> options;
-                if (transfers.TryGetValue(node, out options))
+                if (!WalkOnly && transfers.TryGetValue(node, out options))
                     foreach (var hop in options)
                     {
                         // Never route through a teleport into Nanzhang unless the destination itself is there.

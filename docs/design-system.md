@@ -44,7 +44,8 @@ Segoe UI 10 pt gövde, Segoe UI Semibold başlık ve düğme, Consolas 9,5 pt g�
 
 - Üst çubuk 84 px: sol üstte marka, yanında bağlantı denetimleri; ikinci satırda bağlantı noktası, durum satırı, `Yenilikler` ve vurgu rengi.
 - Alt çubuk 68 px: Başlat / Durdur ve tek satırlık durum.
-- Etkinlik günlüğü kartı alttadır; 780 px'ten kısa pencerede kendiliğinden katlanır, kullanıcı karar verince bu davranış durur.
+- Etkinlik günlüğü kartı yoktur; kayıtlar events.log dosyasına yazılır ve Log sayfasında okunur.
+- Pencereyi kapatma `ConfirmDialog` ile sorulur (güvenli yanıt varsayılan düğmedir, Esc de onu seçer). Rozet düğmeleri `ChipBox` ile çizilir.
 - Av / Ayarlar: genişlik ≥ 1060 px ise iki sütun, değilse tek sütun. Kart genişliğine göre uzayan denetimler `Stretch(control)` ile işaretlenir.
 - Diğer sayfalar tek kart için `PageCard(page, title, width)` kullanır.
 

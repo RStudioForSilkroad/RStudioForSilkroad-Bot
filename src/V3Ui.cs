@@ -128,12 +128,11 @@ sealed partial class MemorySelectV3Form : Form
     readonly List<CheckBox> grimModes = new List<CheckBox>();
     readonly HashSet<string> visitedDungeons = new HashSet<string>();
     bool fillingDungeons;
-    readonly TextBox activityView = new TextBox();
     readonly Panel huntPanel = new Panel();
     readonly ListBox mobList = new ListBox();
     readonly NumericUpDown reviveSeconds = new NumericUpDown(), deathLimit = new NumericUpDown();
     readonly CheckBox autoRecovery = new CheckBox();
-    readonly Label deathsLabel = new Label(), grimStatus = new Label();
+    readonly Label deathsLabel = new Label(), grimStatus = new Label(), gridCount = new Label();
     readonly TabControl tabs = new FlatTabs();
     readonly DataGridView dungeonGrid = new DataGridView();
     readonly MapViewer explorerView = new MapViewer(), dungeonView = new MapViewer();
@@ -226,15 +225,8 @@ sealed partial class MemorySelectV3Form : Form
         explorerHost.Controls.Add(explorerFrame);
         explorerTab.Controls.Add(explorerHost);
         BuildGrim(cryptTab);
-        activityView.Multiline = true;
-        activityView.BorderStyle = BorderStyle.None;
-        activityView.ReadOnly = true;
-        activityView.ScrollBars = ScrollBars.Vertical;
-        activityView.WordWrap = false;
-        activityView.TabStop = false;
         var workspace = new Panel { Dock = DockStyle.Fill };
         workspace.Controls.Add(tabs);
-        workspace.Controls.Add(BuildLogHost());
         headerPanel = header;
         Ui.DoubleBuffer(header);
         header.Paint += PaintHeader;
@@ -279,6 +271,7 @@ sealed partial class MemorySelectV3Form : Form
         RefreshProcesses();
         BuildDualAccount();
         BuildModernTabs();
+        BuildCaravan();
         BuildLogTab();
         BuildNavigation(workspace);
         ApplyTheme();
@@ -297,6 +290,7 @@ sealed partial class MemorySelectV3Form : Form
         { "Güncelleme/Kılavuz", "" },
         { "Çift Hesap · Deneme", "" },
         { "Nanzhang NPC", "" },
+        { "Kervan Rotası", "" },
         { "Log", "" }
     };
 
@@ -306,9 +300,17 @@ sealed partial class MemorySelectV3Form : Form
         sidebarHost = new Panel { Dock = DockStyle.Left, Width = 224, Padding = new Padding(0, 0, 1, 0), BackColor = Ui.Border };
         sidebar = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawVariable,
             BorderStyle = BorderStyle.None, Font = Ui.Body, BackColor = Ui.Surface };
-        foreach (TabPage page in tabs.TabPages)
+        // Sidebar order: the caravan page belongs to the work group, right after Grim Crypt (tab indexes stay as they are).
+        var order = tabs.TabPages.Cast<TabPage>().ToList();
+        var caravanPage = order.FirstOrDefault(t => t.Text == "Kervan Rotası");
+        if (caravanPage != null)
+        {
+            order.Remove(caravanPage);
+            order.Insert(3, caravanPage);
+        }
+        foreach (TabPage page in order)
             sidebar.Items.Add(page);
-        Func<int, string> caption = i => i == 0 ? "ÇALIŞMA" : i == 3 ? "ARAÇLAR" : null;
+        Func<int, string> caption = i => i == 0 ? "ÇALIŞMA" : i == 4 ? "ARAÇLAR" : null;
         sidebar.MeasureItem += delegate(object sender, MeasureItemEventArgs e)
         {
             e.ItemHeight = (caption(e.Index) == null ? 0 : 34) + 44;
@@ -371,7 +373,7 @@ sealed partial class MemorySelectV3Form : Form
             sidebarHover = -1;
             sidebar.Invalidate();
         };
-        sidebar.SelectedIndex = tabs.SelectedIndex;
+        sidebar.SelectedItem = tabs.SelectedTab;
         sidebar.SelectedIndexChanged += delegate
         {
             var page = sidebar.SelectedItem as TabPage;
@@ -385,7 +387,8 @@ sealed partial class MemorySelectV3Form : Form
         };
         sidebarHost.Controls.Add(sidebar);
         workspace.Controls.Add(sidebarHost);
-        sidebar.SelectedIndex = Math.Max(0, tabs.SelectedIndex);
+        if (tabs.SelectedTab != null)
+            sidebar.SelectedItem = tabs.SelectedTab;
     }
 
     void Safe(Action action)
@@ -697,6 +700,9 @@ sealed partial class MemorySelectV3Form : Form
             SaveSettings();
             UpdateDisplay();
         }, 190));
+        row = Line(card);
+        ConfigureCheck(uniqueAlertBox, "Yakında unique canavar çıkınca sesle uyar", false, 0);
+        row.Controls.Add(uniqueAlertBox);
         card = Card("Yolculuk", 1);
         row = Line(card);
         ConfigureCheck(travelMount, "Dungeon’a giderken ata bin · Oyundaki aktif mount", false, 0);
@@ -769,9 +775,6 @@ sealed partial class MemorySelectV3Form : Form
     {
         string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " · " + text;
         eventLog.AppendLine(line);
-        if (activityView.TextLength > 16000)
-            activityView.Text = activityView.Text.Substring(6000);
-        activityView.AppendText(line + Environment.NewLine);
         try
         {
             Directory.CreateDirectory(V3Settings.DirectoryPath);
@@ -792,6 +795,7 @@ sealed partial class MemorySelectV3Form : Form
                 mobList.Items.Add(name);
         returnBeforeTravel.Checked = settings.ReturnBeforeTravel;
         travelMount.Checked = settings.TravelMount;
+        uniqueAlertBox.Checked = settings.UniqueAlert;
         autoEnterGrim.Checked = settings.AutoEnterGrim;
         SetValue(xBox, settings.X);
         SetValue(yBox, settings.Y);
@@ -828,6 +832,7 @@ sealed partial class MemorySelectV3Form : Form
         settings.QueueReturnScroll = queueReturnScroll.Checked;
         settings.ReturnBeforeTravel = returnBeforeTravel.Checked;
         settings.TravelMount = travelMount.Checked;
+        settings.UniqueAlert = uniqueAlertBox.Checked;
         settings.AutoEnterGrim = autoEnterGrim.Checked;
         settings.VisitedDungeons = visitedDungeons.OrderBy(id => id).ToList();
         settings.Mobs = selectedMobs.OrderBy(x => x).ToList();
@@ -859,29 +864,33 @@ sealed partial class MemorySelectV3Form : Form
         var page = outerPage;
         page.AutoScroll = true;
         page.AutoScrollMinSize = new Size(960, 560);
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(Ui.Pad, 10, Ui.Pad, 4) };
+        // Row 1: difficulty chips on the left, the walk button on the right.
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(Ui.Pad, 12, Ui.Pad, 2) };
         foreach (string modeName in new[] { "Novice", "Expert", "Master", "Solo Trial" })
         {
-            var check = new CheckBox { Text = modeName, AutoSize = true, Checked = modeName == "Solo Trial", Margin =
-                new Padding(0, 6, 18, 6) };
-            grimModes.Add(check);
-            check.CheckedChanged += delegate { RefreshDungeonGrid(); };
-            toolbar.Controls.Add(check);
+            var chip = new ChipBox { Text = modeName, Checked = modeName == "Solo Trial" };
+            grimModes.Add(chip);
+            chip.CheckedChanged += delegate { RefreshDungeonGrid(); };
+            toolbar.Controls.Add(chip);
         }
-        toolbar.Controls.Add(Btn("Girişe yürü", WalkDungeon, 140, true, ButtonKind.Primary));
+        var walk = Btn("Girişe yürü", WalkDungeon, 140, true, ButtonKind.Primary);
+        walk.Margin = new Padding(16, 0, 0, 0);
+        walk.Height = 32;
+        toolbar.Controls.Add(walk);
+        // Row 2: the auto-enter switch and the one-line beta note.
+        var options = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
+            Padding = new Padding(Ui.Pad, 2, Ui.Pad, 6) };
         autoEnterGrim.Text = "Girişe varınca Solo Trial’a gir ve otomatik avlan";
         autoEnterGrim.AutoSize = true;
-        autoEnterGrim.Margin = new Padding(8, 6, 18, 6);
+        autoEnterGrim.Margin = new Padding(0, 6, 24, 0);
         locked.Add(autoEnterGrim);
-        toolbar.Controls.Add(autoEnterGrim);
-        toolbar.Controls.Add(Btn("Grim Crypt Durdur", delegate { Stop("Dungeon işlemi durduruldu."); }, 190, false, ButtonKind.Danger));
-        var grimNote = new Label { Text =
-            "72 kayıt / 18 giriş · Mob bitince kontrol edilmemiş odalara ilerler · 72/72 canlı bitiriş testi henüz yapılmadı.",
-            AutoSize = false, Width = 900, Height = 24, Tag = "warn", Margin = new Padding(0, 4, 0, 0) };
-        toolbar.Controls.Add(grimNote);
-        toolbar.SizeChanged += delegate { grimNote.Width = Math.Max(300, toolbar.ClientSize.Width - 2 * Ui.Pad); };
+        options.Controls.Add(autoEnterGrim);
+        var grimNote = new Label { Text = "Beta · 72/72 canlı bitiriş testi henüz yapılmadı", AutoSize = true, Tag = "warn",
+            Margin = new Padding(0, 7, 0, 0) };
+        options.Controls.Add(grimNote);
         var split = new SplitContainer { Size = new Size(1200, 660), Dock = DockStyle.Fill, Orientation = Orientation.Vertical,
-            FixedPanel = FixedPanel.Panel1, SplitterDistance = 540, SplitterWidth = 1 };
+            FixedPanel = FixedPanel.Panel1, SplitterDistance = 600, SplitterWidth = 1 };
         split.Panel1.Padding = new Padding(Ui.Pad, 0, 8, Ui.Pad);
         split.Panel2.Padding = new Padding(8, 0, Ui.Pad, Ui.Pad);
         dungeonGrid.Dock = DockStyle.Fill;
@@ -897,9 +906,17 @@ sealed partial class MemorySelectV3Form : Form
             "İç rota" })
         {
             int column = dungeonGrid.Columns.Add(c, c);
-            dungeonGrid.Columns[column].ReadOnly = true;
-            dungeonGrid.Columns[column].Width = c == "Bölge / Dungeon" ? 210 : c == "Şehir" ? 120 : c == "Kod" ? 55 : 85;
+            var col = dungeonGrid.Columns[column];
+            col.ReadOnly = true;
+            col.Width = c == "Şehir" ? 150 : c == "Kod" ? 52 : 90;
+            // Coordinates, instance id and route note stay in the data (queue and walker read them) but not on screen.
+            if (c == "Giriş X" || c == "Giriş Y" || c == "Instance" || c == "İç rota")
+                col.Visible = false;
         }
+        dungeonGrid.Columns["Bölge / Dungeon"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
+        dungeonGrid.Columns["Bölge / Dungeon"].MinimumWidth = 150;
+        visitedColumn.Width = 72;
+        visitedColumn.AutoSizeMode = DataGridViewAutoSizeColumnMode.None;
         dungeonGrid.CurrentCellDirtyStateChanged += delegate
         {
             if (dungeonGrid.IsCurrentCellDirty && dungeonGrid.CurrentCell.ColumnIndex == 0)
@@ -931,6 +948,12 @@ sealed partial class MemorySelectV3Form : Form
         };
         var gridHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
         gridHost.Controls.Add(dungeonGrid);
+        gridCount.Dock = DockStyle.Top;
+        gridCount.Height = 34;
+        gridCount.Font = Ui.Heading;
+        gridCount.Padding = new Padding(12, 0, 0, 0);
+        gridCount.TextAlign = ContentAlignment.MiddleLeft;
+        gridHost.Controls.Add(gridCount);
         split.Panel1.Controls.Add(gridHost);
         BuildQueuePanel(split.Panel1);
         grimViews.Dock = DockStyle.Fill;
@@ -953,12 +976,15 @@ sealed partial class MemorySelectV3Form : Form
         mapHost.Controls.Add(new TabStrip(grimViews));
         split.Panel2.Controls.Add(mapHost);
         grimStatus.Dock = DockStyle.Bottom;
-        grimStatus.Height = 44;
-        grimStatus.Padding = new Padding(Ui.Pad, 10, Ui.Pad, 10);
+        grimStatus.Height = 36;
+        grimStatus.Font = Ui.Small;
+        grimStatus.TextAlign = ContentAlignment.MiddleLeft;
+        grimStatus.Padding = new Padding(Ui.Pad, 0, Ui.Pad, 0);
         grimStatus.Tag = "muted";
-        grimStatus.Text = "Dungeon seç. Otomatik giriş kutusu açıksa Solo Trial’a girer; kapalıysa girişte bekler.";
+        grimStatus.Text = "Dungeon seç. Otomatik giriş açıksa Solo Trial’a girer; kapalıysa girişte bekler.";
         page.Controls.Add(split);
         page.Controls.Add(grimStatus);
+        page.Controls.Add(options);
         page.Controls.Add(toolbar);
         BuildWorldMap();
         RefreshDungeonGrid();
@@ -983,6 +1009,7 @@ sealed partial class MemorySelectV3Form : Form
         }
         finally
         {
+            gridCount.Text = "Dungeon listesi · " + dungeonGrid.Rows.Count + " kayıt";
             fillingDungeons = false;
             var selected = SelectedDungeon();
             if (selected != null)
@@ -1012,12 +1039,13 @@ sealed partial class MemorySelectV3Form : Form
         WalkDungeon(SelectedDungeon());
     }
 
-    void WalkDungeon(DungeonLocation d)
+    void WalkDungeon(DungeonLocation d, bool roadsOnly = false)
     {
         RequireReader();
         if (d == null)
             throw new InvalidOperationException("Dungeon seç.");
         Stop("Giriş rotası hazırlanıyor.");
+        caravanWalk = roadsOnly;
         snapshot = reader.Capture();
         if (!snapshot.PlayerAlive || !snapshot.Player.Outside || new[] { 30082, 30083, 30084, 30085, 30086, 30338, 30339,
             30340, 30341, 30342 }.Contains((int)snapshot.Player.Region))

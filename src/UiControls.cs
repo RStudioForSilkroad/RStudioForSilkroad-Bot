@@ -366,3 +366,60 @@ sealed class TabStrip : Control
             g.DrawLine(line, 0, Height - 1, Width, Height - 1);
     }
 }
+
+// A rounded pill that works as a check box: filled with the accent colour when on, outlined when off.
+sealed class ChipBox : CheckBox
+{
+    bool over;
+
+    internal ChipBox()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
+            ControlStyles.ResizeRedraw, true);
+        AutoSize = false;
+        Size = new Size(104, 32);
+        Cursor = Cursors.Hand;
+        Margin = new Padding(0, 0, 8, 0);
+    }
+
+    protected override void OnMouseEnter(EventArgs e) { over = true; Invalidate(); base.OnMouseEnter(e); }
+    protected override void OnMouseLeave(EventArgs e) { over = false; Invalidate(); base.OnMouseLeave(e); }
+    protected override void OnCheckedChanged(EventArgs e) { Invalidate(); base.OnCheckedChanged(e); }
+    protected override void OnEnabledChanged(EventArgs e) { Invalidate(); base.OnEnabledChanged(e); }
+    protected override void OnGotFocus(EventArgs e) { Invalidate(); base.OnGotFocus(e); }
+    protected override void OnLostFocus(EventArgs e) { Invalidate(); base.OnLostFocus(e); }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        Color back = Parent != null ? Parent.BackColor : Ui.Canvas;
+        e.Graphics.Clear(back.A == 255 ? back : Ui.Canvas);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        var rect = new Rectangle(1, 1, Width - 3, Height - 3);
+        Color fill = Checked ? Ui.Accent : (over ? Ui.AccentTint : Ui.Surface);
+        Color line = Checked ? Ui.Accent : (over ? Ui.Accent : Ui.Border);
+        Color ink = Checked ? Color.White : Ui.TextSecondary;
+        if (!Enabled)
+        {
+            fill = Ui.SurfaceAlt;
+            line = Ui.Border;
+            ink = Ui.TextMuted;
+        }
+        using (var path = Ui.RoundRect(rect, rect.Height / 2))
+        using (var brush = new SolidBrush(fill))
+        using (var pen = new Pen(line))
+        {
+            e.Graphics.FillPath(brush, path);
+            e.Graphics.DrawPath(pen, path);
+        }
+        if (Focused && ShowFocusCues)
+        {
+            var ring = new Rectangle(rect.X + 3, rect.Y + 3, rect.Width - 6, rect.Height - 6);
+            using (var path = Ui.RoundRect(ring, ring.Height / 2))
+            using (var pen = new Pen(Color.FromArgb(Checked ? 200 : 140, Ui.Accent)) { DashStyle = DashStyle.Dot })
+                e.Graphics.DrawPath(pen, path);
+        }
+        TextRenderer.DrawText(e.Graphics, Text, Ui.Body, rect, ink,
+            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
+            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+    }
+}
