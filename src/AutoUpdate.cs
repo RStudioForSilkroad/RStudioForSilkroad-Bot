@@ -365,26 +365,30 @@ sealed partial class MemorySelectV3Form : Form
     {
         var page = new TabPage("Güncelleme/Kılavuz");
         tabs.TabPages.Add(page);
-        var panel = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents =
-            false, Padding = new Padding(24) };
-        page.Controls.Add(panel);
+        var panel = PageCard(page, "Güncelleme ve kılavuz", 780);
         autoUpdate.Text = "Otomatik güncelleme kontrolü";
-        autoUpdate.Width = 400;
+        autoUpdate.AutoSize = true;
+        autoUpdate.Margin = new Padding(0, 0, 0, 8);
         panel.Controls.Add(autoUpdate);
-        panel.Controls.Add(Btn("Şimdi kontrol et", delegate
+        panel.Controls.Add(Caption("Sürüm: " + UpdateTrust.CurrentVersion));
+        panel.Controls.Add(Caption("Güncelleme adresi"));
+        updateUrl.Width = 740;
+        updateUrl.BorderStyle = BorderStyle.FixedSingle;
+        updateUrl.Margin = new Padding(0, 0, 0, 10);
+        panel.Controls.Add(updateUrl);
+        locked.Add(updateUrl);
+        updateStatus.Width = 740;
+        updateStatus.Height = 52;
+        updateStatus.Tag = "muted";
+        panel.Controls.Add(updateStatus);
+        var buttons = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        buttons.Controls.Add(Btn("Şimdi kontrol et", delegate
         {
             SaveSettings();
             CheckUpdates();
-        }, 220));
-        panel.Controls.Add(LabelOf("Sürüm: " + UpdateTrust.CurrentVersion, 300));
-        panel.Controls.Add(LabelOf("Güncelleme adresi", 300));
-        updateUrl.Width = 850;
-        panel.Controls.Add(updateUrl);
-        locked.Add(updateUrl);
-        updateStatus.Width = 900;
-        updateStatus.Height = 80;
-        panel.Controls.Add(updateStatus);
-        panel.Controls.Add(Btn("Kullanım Kılavuzu · PDF", OpenManual, 280, false));
+        }, 170, true, ButtonKind.Primary));
+        buttons.Controls.Add(Btn("Kullanım Kılavuzu · PDF", OpenManual, 220, false));
+        panel.Controls.Add(buttons);
     }
 
     void RestoreUpdateControls()

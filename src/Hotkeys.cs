@@ -53,12 +53,15 @@ sealed class HotkeyDialog : Form
         MaximizeBox = MinimizeBox = false;
         StartPosition = FormStartPosition.CenterParent;
         KeyPreview = true;
-        Font = new Font("Segoe UI", 10);
+        Font = Ui.Body;
+        BackColor = Ui.Surface;
+        ForeColor = Ui.Text;
         value.SetBounds(18, 16, 414, 45);
         value.Text = HotkeyPolicy.Name(key, mods);
-        value.Font = new Font("Segoe UI", 18, FontStyle.Bold);
+        value.Font = new Font("Segoe UI Semibold", 18f);
         hint.SetBounds(18, 65, 414, 42);
         hint.Text = "İstediğin tuşa veya Ctrl / Alt / Shift ile birleşimine bas.";
+        hint.ForeColor = Ui.TextMuted;
         Controls.AddRange(new Control[] { value, hint });
         var ok = new Button { Text = "Ata", DialogResult = DialogResult.OK, Bounds = new Rectangle(18, 124, 125, 34) };
         var clear = new Button { Text = "Kaldır", Bounds = new Rectangle(158, 124, 125, 34) };
@@ -69,6 +72,9 @@ sealed class HotkeyDialog : Form
         };
         var cancel = new Button { Text = "İptal", DialogResult = DialogResult.Cancel, Bounds = new Rectangle(298, 124,
             125, 34) };
+        Fancy.Kind(ok, ButtonKind.Primary);
+        Fancy.Kind(clear, ButtonKind.Secondary);
+        Fancy.Kind(cancel, ButtonKind.Secondary);
         Controls.AddRange(new Control[] { ok, clear, cancel });
         CancelButton = cancel;
         KeyDown += CaptureKey;

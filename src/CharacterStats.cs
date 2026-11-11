@@ -158,13 +158,16 @@ sealed class CharacterStats
     }
 }
 
-// The character status card: HP (red), MP (blue), EXP (green) and SP (yellow) bars plus per-minute and per-hour rates.
+// The character status card: HP (red), MP (blue), EXP (green) and SP (amber) bars plus per-minute and per-hour rates.
 
 sealed class StatPanel : Control
 {
-    internal static readonly Color HpColor = Color.FromArgb(214, 48, 48), MpColor = Color.FromArgb(52, 120, 235),
-        ExpColor = Color.FromArgb(52, 176, 84), SpColor = Color.FromArgb(240, 196, 40);
-    internal Color PanelColor = Color.FromArgb(20, 34, 55), TextColor = Color.White;
+    internal static readonly Color HpColor = Color.FromArgb(239, 68, 68), MpColor = Color.FromArgb(59, 130, 246),
+        ExpColor = Color.FromArgb(34, 197, 94), SpColor = Color.FromArgb(245, 158, 11);
+    // Darker variants for text on white (at least 4.5:1)
+    static readonly Color HpInk = Color.FromArgb(185, 28, 28), MpInk = Color.FromArgb(29, 78, 216), ExpInk = Color.FromArgb(21, 128, 61),
+        SpInk = Color.FromArgb(180, 83, 9);
+    internal const int EmptyHeight = 48, FullHeight = 262;
     internal Snapshot Sample;
     internal CharacterStats Stats;
     internal long Now;
@@ -173,6 +176,7 @@ sealed class StatPanel : Control
     {
         DoubleBuffered = true;
         ResizeRedraw = true;
+        Height = EmptyHeight;
     }
 
     internal static string Duration(double minutes)
@@ -201,108 +205,110 @@ sealed class StatPanel : Control
         return "+" + Num(value);
     }
 
-    void Bar(Graphics g, Font font, int y, string label, double fraction, Color color, string text)
+    const TextFormatFlags Flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix | TextFormatFlags.SingleLine;
+
+    static void DrawLine(Graphics g, string text, Font font, Color color, int x, int y, int width, int height = 24)
     {
-        const int left = 50, height = 24;
-        int width = Width - left - 6;
-        using (var track = new SolidBrush(Color.FromArgb(40, 42, 54)))
-            g.FillRectangle(track, left, y, width, height);
+        TextRenderer.DrawText(g, text, font, new Rectangle(x, y, Math.Max(10, width), height), color, Flags);
+    }
+
+    void Bar(Graphics g, int y, string label, double fraction, Color fill, Color ink, string text)
+    {
+        int width = Width;
+        int valueWidth = Math.Min(270, Math.Max(150, width * 45 / 100)), left = 48;
+        int barWidth = Math.Max(80, width - left - valueWidth - 12);
+        DrawLine(g, label, Ui.BodyBold, ink, 0, y, 44);
+        var track = new Rectangle(left, y + 5, barWidth, 14);
+        using (var path = Ui.RoundRect(track, 7))
+            using (var brush = new SolidBrush(Color.FromArgb(230, 234, 241)))
+                g.FillPath(brush, path);
         fraction = Math.Max(0, Math.Min(1, double.IsNaN(fraction) ? 0 : fraction));
-        using (var fill = new LinearGradientBrush(new Rectangle(left, y, Math.Max(1, width), height), ControlPaint.Light(color,
-            0.25f), color, LinearGradientMode.Vertical))
-            g.FillRectangle(fill, left, y, (int)(width * fraction), height);
-        using (var edge = new Pen(Color.FromArgb(90, 255, 255, 255)))
-            g.DrawRectangle(edge, left, y, width - 1, height - 1);
-        using (var labelBrush = new SolidBrush(color))
-            g.DrawString(label, font, labelBrush, 4, y + 3);
-        var size = g.MeasureString(text, font);
-        float tx = left + (width - size.Width) / 2, ty = y + (height - size.Height) / 2;
-        foreach (var o in new[] { new PointF(-1, 0), new PointF(1, 0), new PointF(0, -1), new PointF(0, 1) })
-            g.DrawString(text, font, Brushes.Black, tx + o.X, ty + o.Y);
-        g.DrawString(text, font, Brushes.White, tx, ty);
+        int fillWidth = (int)(barWidth * fraction);
+        if (fillWidth >= 2)
+        {
+            var part = new Rectangle(left, y + 5, Math.Max(14, fillWidth), 14);
+            using (var path = Ui.RoundRect(part, 7))
+                using (var brush = new SolidBrush(fill))
+                    g.FillPath(brush, path);
+        }
+        DrawLine(g, text, Ui.Body, Ui.Text, left + barWidth + 12, y, valueWidth);
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         var g = e.Graphics;
-        g.Clear(PanelColor);
+        g.Clear(Ui.Surface);
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        using (var bold = new Font("Segoe UI", 10f, FontStyle.Bold))
-            using (var normal = new Font("Segoe UI", 10f))
-                using (var text = new SolidBrush(TextColor))
-                {
-                    var s = Sample;
-                    if (s == null || !s.StatsKnown)
-                    {
-                        g.DrawString("Karakter verisi yok · oyun penceresini seçip Bağlan / Oku'ya bas.", normal, text,
-                            4, 8);
-                        return;
-                    }
-                    using (var big = new Font("Segoe UI", 16f, FontStyle.Bold))
-                        using (var gold = new SolidBrush(Color.FromArgb(255, 205, 80)))
-                        {
-                            float x0 = 4;
-                            if (!string.IsNullOrEmpty(s.CharacterName))
-                            {
-                                g.DrawString(s.CharacterName, big, text, 4, 0);
-                                x0 = 4 + g.MeasureString(s.CharacterName, big).Width + 6;
-                            }
-                            string level = "Seviye " + s.Level;
-                            g.DrawString(level, big, gold, x0, 0);
-                            float x = x0 + g.MeasureString(level, big).Width + 8;
-                            string more = "";
-                            if (Stats != null && Stats.Started)
-                            {
-                                more = "Oturum süresi " + Duration((Now - Stats.StartMs) / 60000.0);
-                                if (Stats.LevelsGained > 0)
-                                    more += "   ·   +" + Stats.LevelsGained + " seviye atlandı";
-                            }
-                            if (more.Length > 0)
-                                g.DrawString(more, bold, text, x, 8);
-                        }
-                    int y = 36;
-                    Bar(g, bold, y, "HP", s.MaxHp == 0 ? 0 : (double)s.Hp / s.MaxHp, HpColor, s.Hp.ToString("N0") +
-                        " / " + s.MaxHp.ToString("N0") + "  ·  %" + (s.MaxHp == 0 ? 0 : 100.0 * s.Hp / s.MaxHp).ToString("0.0"));
-                    y += 30;
-                    Bar(g, bold, y, "MP", s.MaxMp == 0 ? 0 : (double)s.Mp / s.MaxMp, MpColor, s.Mp.ToString("N0") +
-                        " / " + s.MaxMp.ToString("N0") + "  ·  %" + (s.MaxMp == 0 ? 0 : 100.0 * s.Mp / s.MaxMp).ToString("0.0"));
-                    y += 30;
-                    long need = LevelData.Required(s.Level);
-                    double expFraction = need > 0 ? (double)s.Exp / need : 0;
-                    Bar(g, bold, y, "EXP", expFraction, ExpColor, need > 0 ? ((long)s.Exp).ToString("N0") + " / " + need.ToString("N0") +
-                        "  ·  %" + (100.0 * expFraction).ToString("0.00") : ((long)s.Exp).ToString("N0"));
-                    y += 30;
-                    Bar(g, bold, y, "SP", s.SpExp / 400.0, SpColor, s.Sp.ToString("N0") + " SP  ·  sonraki SP'ye %" + (100.0 * s.SpExp / 400.0)
-                        .ToString("0.0"));
-                    y += 36;
-                    int[] columns = { 4, 60, 240, 430, 700 };
-                    string[] titles = { "", "Oturum", "Dakikada", "Saatte", "Kalan" };
-                    for (int i = 1; i < titles.Length; i++)
-                        g.DrawString(titles[i], bold, text, columns[i], y);
-                    y += 22;
-                    if (Stats == null || !Stats.Started)
-                        return;
-                    double expMin = Stats.ExpPerMinute(Now), spMin = Stats.SpPerMinute(Now);
-                    using (var expBrush = new SolidBrush(ExpColor))
-                        using (var spBrush = new SolidBrush(SpColor))
-                        {
-                            g.DrawString("EXP", bold, expBrush, columns[0], y);
-                            g.DrawString(Signed(Stats.ExpGained), normal, expBrush, columns[1], y);
-                            g.DrawString(Signed(expMin) + " /dk", normal, expBrush, columns[2], y);
-                            g.DrawString(Signed(expMin * 60) + " /sa" + (need > 0 ? " (%" + (100.0 * expMin * 60 / need)
-                                .ToString("0.0") + ")" : ""), normal, expBrush, columns[3], y);
-                            g.DrawString("Seviyeye " + Duration(Stats.MinutesToLevel(Now, s)), normal, expBrush, columns[4],
-                                y);
-                            y += 22;
-                            g.DrawString("SP", bold, spBrush, columns[0], y);
-                            g.DrawString("+" + Stats.SpGained.ToString("0.0"), normal, spBrush, columns[1], y);
-                            g.DrawString("+" + spMin.ToString("0.00") + " /dk", normal, spBrush, columns[2], y);
-                            g.DrawString("+" + (spMin * 60).ToString("0.0") + " /sa", normal, spBrush, columns[3], y);
-                            g.DrawString("Sonraki SP " + Duration(Stats.MinutesToNextSp(Now, s)), normal, spBrush,
-                                columns[4], y);
-                        }
-                }
+        var s = Sample;
+        if (s == null || !s.StatsKnown)
+        {
+            DrawLine(g, "Karakter verisi yok · oyun penceresini seçip Bağlan / Oku'ya bas.", Ui.Body, Ui.TextMuted, 0, 4, Width, 28);
+            return;
+        }
+        int x = 0;
+        if (!string.IsNullOrEmpty(s.CharacterName))
+        {
+            int w = TextRenderer.MeasureText(s.CharacterName, Ui.Title, new Size(2000, 40), Flags).Width;
+            DrawLine(g, s.CharacterName, Ui.Title, Ui.Text, 0, 0, w + 4, 32);
+            x = w + 14;
+        }
+        string level = "Seviye " + s.Level;
+        int levelWidth = TextRenderer.MeasureText(level, Ui.BodyBold, new Size(2000, 40), Flags).Width + 20;
+        var badge = new Rectangle(x, 4, levelWidth, 24);
+        using (var path = Ui.RoundRect(badge, 12))
+            using (var brush = new SolidBrush(Ui.AccentTint))
+                g.FillPath(brush, path);
+        TextRenderer.DrawText(g, level, Ui.BodyBold, badge, Ui.Accent, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        x = badge.Right + 14;
+        if (Stats != null && Stats.Started)
+        {
+            string more = "Oturum süresi " + Duration((Now - Stats.StartMs) / 60000.0);
+            if (Stats.LevelsGained > 0)
+                more += "  ·  +" + Stats.LevelsGained + " seviye atlandı";
+            DrawLine(g, more, Ui.Body, Ui.TextSecondary, x, 4, Width - x, 24);
+        }
+        int y = 42;
+        Bar(g, y, "HP", s.MaxHp == 0 ? 0 : (double)s.Hp / s.MaxHp, HpColor, HpInk, s.Hp.ToString("N0") + " / " + s.MaxHp.ToString("N0") +
+            "  ·  %" + (s.MaxHp == 0 ? 0 : 100.0 * s.Hp / s.MaxHp).ToString("0.0"));
+        y += 32;
+        Bar(g, y, "MP", s.MaxMp == 0 ? 0 : (double)s.Mp / s.MaxMp, MpColor, MpInk, s.Mp.ToString("N0") + " / " + s.MaxMp.ToString("N0") +
+            "  ·  %" + (s.MaxMp == 0 ? 0 : 100.0 * s.Mp / s.MaxMp).ToString("0.0"));
+        y += 32;
+        long need = LevelData.Required(s.Level);
+        double expFraction = need > 0 ? (double)s.Exp / need : 0;
+        Bar(g, y, "EXP", expFraction, ExpColor, ExpInk, need > 0 ? ((long)s.Exp).ToString("N0") + " / " + need.ToString("N0") + "  ·  %" +
+            (100.0 * expFraction).ToString("0.00") : ((long)s.Exp).ToString("N0"));
+        y += 32;
+        Bar(g, y, "SP", s.SpExp / 400.0, SpColor, SpInk, s.Sp.ToString("N0") + " SP  ·  sonraki SP'ye %" + (100.0 * s.SpExp / 400.0).ToString("0.0"));
+        y += 40;
+        using (var line = new Pen(Ui.Divider))
+            g.DrawLine(line, 0, y - 6, Width, y - 6);
+        int span = Math.Max(300, Width - 52);
+        int[] columns = { 0, 52, 52 + span * 20 / 100, 52 + span * 44 / 100, 52 + span * 70 / 100 };
+        string[] titles = { "", "Oturum", "Dakikada", "Saatte", "Kalan" };
+        for (int i = 1; i < titles.Length; i++)
+            DrawLine(g, titles[i], Ui.Small, Ui.TextMuted, columns[i], y, columns[i] + 100 > Width ? 80 : 120, 20);
+        y += 22;
+        if (Stats == null || !Stats.Started)
+        {
+            DrawLine(g, "Sayaçlar bot çalışırken dolar.", Ui.Body, Ui.TextMuted, 0, y, Width, 24);
+            return;
+        }
+        double expMin = Stats.ExpPerMinute(Now), spMin = Stats.SpPerMinute(Now);
+        int cell = Math.Max(90, span * 24 / 100);
+        DrawLine(g, "EXP", Ui.BodyBold, ExpInk, columns[0], y, 48);
+        DrawLine(g, Signed(Stats.ExpGained), Ui.Body, Ui.Text, columns[1], y, cell);
+        DrawLine(g, Signed(expMin) + " /dk", Ui.Body, Ui.Text, columns[2], y, cell);
+        DrawLine(g, Signed(expMin * 60) + " /sa" + (need > 0 ? " (%" + (100.0 * expMin * 60 / need).ToString("0.0") + ")" : ""), Ui.Body, Ui.Text,
+            columns[3], y, cell + 20);
+        DrawLine(g, "Seviyeye " + Duration(Stats.MinutesToLevel(Now, s)), Ui.Body, Ui.Text, columns[4], y, Width - columns[4]);
+        y += 26;
+        DrawLine(g, "SP", Ui.BodyBold, SpInk, columns[0], y, 48);
+        DrawLine(g, "+" + Stats.SpGained.ToString("0.0"), Ui.Body, Ui.Text, columns[1], y, cell);
+        DrawLine(g, "+" + spMin.ToString("0.00") + " /dk", Ui.Body, Ui.Text, columns[2], y, cell);
+        DrawLine(g, "+" + (spMin * 60).ToString("0.0") + " /sa", Ui.Body, Ui.Text, columns[3], y, cell);
+        DrawLine(g, "Sonraki SP " + Duration(Stats.MinutesToNextSp(Now, s)), Ui.Body, Ui.Text, columns[4], y, Width - columns[4]);
     }
 }
 
@@ -315,13 +321,12 @@ sealed partial class MemorySelectV3Form
     {
         var card = Card("Karakter durumu");
         statPanel.Stats = characterStats;
-        statPanel.Size = new Size(1030, 240);
-        Line(card).Controls.Add(statPanel);
+        Line(card).Controls.Add(Stretch(statPanel));
         Line(card).Controls.Add(Btn("Sayaçları sıfırla", delegate
         {
             characterStats.Reset();
             statPanel.Invalidate();
-        }, 180, false));
+        }, 160, false, ButtonKind.Ghost));
     }
 
     void UpdateStatPanel(long now)
@@ -329,6 +334,9 @@ sealed partial class MemorySelectV3Form
         characterStats.Observe(now, snapshot);
         statPanel.Sample = snapshot;
         statPanel.Now = now;
+        int wanted = snapshot != null && snapshot.StatsKnown ? StatPanel.FullHeight : StatPanel.EmptyHeight;
+        if (statPanel.Height != wanted)
+            statPanel.Height = wanted;
         statPanel.Invalidate();
     }
 }

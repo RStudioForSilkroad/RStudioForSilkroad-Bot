@@ -9,23 +9,40 @@ using System.Reflection;
 using System.Web.Script.Serialization;
 using System.Windows.Forms;
 
+// Application shell: colour application, header, log card and the Nanzhang NPC page. Tokens live in Ui.cs.
 sealed partial class MemorySelectV3Form
 {
     readonly ComboBox themePicker = new ComboBox();
+    readonly Label themeLabel = new Label { Text = "Vurgu", AutoSize = true };
+    Button whatsNewButton;
+    Panel headerPanel, footerPanel, sidebarHost, logHost;
+    Button logToggle;
+    bool logCollapsed, logUserChoice;
+    CardBox logCard;
 
     void BuildModernTabs()
     {
         var page = new TabPage("Nanzhang NPC");
         tabs.TabPages.Add(page);
-        var split = new SplitContainer { Size = new Size(1400, 650), Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1,
-            SplitterDistance = 330 };
+        var split = new SplitContainer { Size = new Size(1200, 650), Dock = DockStyle.Fill, FixedPanel = FixedPanel.Panel1,
+            SplitterDistance = 340, SplitterWidth = 1 };
         page.Controls.Add(split);
-        var search = new TextBox { Dock = DockStyle.Top };
-        var list = new ListBox { Dock = DockStyle.Fill };
+        split.Panel1.Padding = new Padding(Ui.Pad);
+        var searchLabel = new Label { Text = "İsim veya kimlik ara", Dock = DockStyle.Top, Height = 24, Tag = "muted" };
+        var search = new TextBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.FixedSingle };
+        var list = new ListBox { Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle, IntegralHeight = false };
         var viewer = new MapViewer { Dock = DockStyle.Fill };
+        var hint = new Label { Dock = DockStyle.Bottom, Height = 72, Padding = new Padding(0, 10, 0, 0), Tag = "muted", Text =
+            "Fare tekerleği: yakınlaştır · Sol tuş: sürükle\n134 canlı kayıt; şehir krokisi yaklaşık yapı izdüşümüdür." };
         split.Panel1.Controls.Add(list);
+        split.Panel1.Controls.Add(hint);
+        split.Panel1.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8 });
         split.Panel1.Controls.Add(search);
-        split.Panel2.Controls.Add(viewer);
+        split.Panel1.Controls.Add(searchLabel);
+        split.Panel2.Padding = new Padding(Ui.Pad);
+        var nanzhangFrame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
+        nanzhangFrame.Controls.Add(viewer);
+        split.Panel2.Controls.Add(nanzhangFrame);
         viewer.LoadResource("nanzhang-map.jpg");
         List<NpcMapRecord> records;
         using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("nanzhang-data.json"))
@@ -41,9 +58,6 @@ sealed partial class MemorySelectV3Form
         };
         search.TextChanged += delegate { filter(); };
         filter();
-        var hint = new Label { Dock = DockStyle.Bottom, Height = 70, Text =
-            "İsim veya kimlik ara · Fare tekerleği: yakınlaştır · Sol tuş: sürükle\n134 canlı kayıt; şehir krokisi yaklaşık yapı izdüşümüdür." };
-        split.Panel1.Controls.Add(hint);
         list.SelectedIndexChanged += delegate
         {
             var n = list.SelectedItem as NpcMapRecord;
@@ -54,13 +68,13 @@ sealed partial class MemorySelectV3Form
                 viewer.FocusNpc(n.x, n.y);
             }
         };
-        var themeLabel = new Label { Text = "Tema", AutoSize = true };
-        themePicker.Width = 190;
+        themePicker.Width = 120;
         themePicker.DropDownStyle = ComboBoxStyle.DropDownList;
-        themePicker.Items.AddRange(new[] { "Lacivert · Altın", "Siyah · Turkuaz", "Beyaz · Mavi", "Siyah",
-            "Mavi · Gümüş", "Siyah · Zümrüt", "Gece · Mor" });
-        PlaceThemePicker(themeLabel);
-        headerPanel.Resize += delegate { PlaceThemePicker(themeLabel); };
+        themePicker.Items.AddRange(Ui.AccentNames);
+        headerPanel.Controls.Add(themeLabel);
+        headerPanel.Controls.Add(themePicker);
+        PlaceHeaderRight();
+        headerPanel.Resize += delegate { PlaceHeaderRight(); };
         themePicker.SelectedIndexChanged += delegate
         {
             ApplyTheme();
@@ -73,85 +87,75 @@ sealed partial class MemorySelectV3Form
         themePicker.SelectedIndex = Math.Max(0, Math.Min(themePicker.Items.Count - 1, settings.Theme));
     }
 
-    Color accentColor = Color.FromArgb(193, 151, 72), sidebarColor = Color.FromArgb(14, 24, 40);
-
+    // Colours come from Ui; the accent colour is the only thing the user can change.
     void ApplyTheme()
     {
-        int n = Math.Max(0, Math.Min(6, themePicker.SelectedIndex));
-        Color[][] palettes = { new[] { C(20, 34, 55), C(30, 48, 74), C(234, 238, 244), C(193, 151, 72), C(14, 24, 40) },
-            new[] { C(22, 25, 30), C(34, 38, 46), C(234, 238, 244), C(30, 155, 161), C(15, 17, 21) }, new[] { C(245, 247,
-            251), C(255, 255, 255), C(30, 45, 65), C(55, 112, 183), C(228, 233, 242) }, new[] { C(22, 25, 30), C(36, 38,
-            44), C(234, 238, 244), C(96, 102, 114), C(15, 17, 21) }, new[] { C(20, 34, 55), C(30, 48, 74), C(234, 238,
-            244), C(55, 112, 183), C(14, 24, 40) }, new[] { C(18, 30, 28), C(28, 46, 42), C(232, 242, 238), C(46, 160,
-            120), C(11, 21, 19) }, new[] { C(26, 22, 40), C(40, 34, 60), C(236, 233, 246), C(135, 100, 210), C(18, 15,
-            30) } };
-        Color bg = palettes[n][0], input = palettes[n][1], fg = palettes[n][2], accent = palettes[n][3];
-        sidebarColor = palettes[n][4];
-        accentColor = accent;
-        Color hover = Color.FromArgb(Math.Min(255, accent.R + 28), Math.Min(255, accent.G + 28), Math.Min(255, accent.B +
-            28)), down = Color.FromArgb(accent.R * 4 / 5, accent.G * 4 / 5, accent.B * 4 / 5);
-        Action<Control> paint = null;
-        paint = c =>
+        Ui.SetAccent(Math.Max(0, themePicker.SelectedIndex));
+        Action<Control, Color> paint = null;
+        paint = (c, bg) =>
         {
-            if (c is MapViewer || c is DungeonRadar || c is StatPanel)
+            if (c is MapViewer || c is DungeonRadar || c is StatPanel || c is TabStrip)
+            {
+                c.Invalidate();
                 return;
-            c.BackColor = bg;
-            c.ForeColor = fg;
+            }
+            if (c == sidebar)
+            {
+                sidebar.BackColor = Ui.Surface;
+                sidebar.Invalidate();
+                return;
+            }
+            if (c == headerPanel || c == footerPanel || c == sidebarHost)
+                bg = Ui.Surface;
+            if (c is CardBox)
+                bg = Ui.Surface;
+            if (c is WorldMapView)
+            {
+                foreach (Control child in c.Controls)
+                    paint(child, Ui.Surface);
+                c.Invalidate();
+                return;
+            }
+            var page = c as TabPage;
+            if (page != null)
+                page.UseVisualStyleBackColor = false;
             if (c is TextBox || c is ComboBox || c is NumericUpDown || c is ListBox)
-                c.BackColor = input;
-            if (c is GroupBox)
-                c.ForeColor = accent;
-            var b = c as Button;
-            if (b != null)
-                Fancy.Style(b, accent, hover, down);
-            if (c is GroupBox)
-                c.Font = Fancy.GroupFont;
-            if (headerPanel != null && c.Parent == headerPanel && (c is Label || c is FlowLayoutPanel))
-                c.BackColor = Color.Transparent;
+            {
+                c.BackColor = Ui.Surface;
+                c.ForeColor = Ui.Text;
+            }
+            else if (c is SplitContainer)
+                c.BackColor = Ui.Divider;
+            else if (c is Button)
+                Fancy.Style((Button)c);
+            else if ("border".Equals(c.Tag))
+            {
+                c.BackColor = Ui.Border;
+                bg = Ui.Surface;
+            }
+            else
+            {
+                c.BackColor = bg;
+                c.ForeColor = c is Label && "muted".Equals(c.Tag) ? Ui.TextMuted : c is Label && "warn".Equals(c.Tag) ? Ui.Warning : Ui.Text;
+            }
             var g = c as DataGridView;
             if (g != null)
-            {
-                g.EnableHeadersVisualStyles = false;
-                g.BorderStyle = BorderStyle.None;
-                g.GridColor = bg;
-                g.BackgroundColor = bg;
-                g.DefaultCellStyle.BackColor = input;
-                g.DefaultCellStyle.ForeColor = fg;
-                g.DefaultCellStyle.SelectionBackColor = accent;
-                g.DefaultCellStyle.SelectionForeColor = Color.White;
-                g.ColumnHeadersDefaultCellStyle.BackColor = accent;
-                g.ColumnHeadersDefaultCellStyle.ForeColor = Color.White;
-                g.ColumnHeadersDefaultCellStyle.SelectionBackColor = accent;
-                g.ColumnHeadersBorderStyle = DataGridViewHeaderBorderStyle.None;
-                foreach (DataGridViewRow r in g.Rows)
-                {
-                    r.DefaultCellStyle.BackColor = input;
-                    r.DefaultCellStyle.ForeColor = fg;
-                }
-            }
+                Ui.StyleGrid(g);
             foreach (Control child in c.Controls)
-                paint(child);
+                paint(child, bg);
         };
-        paint(this);
-        statPanel.PanelColor = bg;
-        statPanel.TextColor = fg;
+        BackColor = Ui.Canvas;
+        paint(this, Ui.Canvas);
         statPanel.Invalidate();
-        if (sidebar != null)
-        {
-            sidebar.BackColor = sidebarColor;
-            sidebar.Invalidate();
-        }
-        if (aurora != null)
-            aurora.Accent = accent;
         if (logHost != null)
-            logHost.Invalidate();
+            logHost.Invalidate(true);
         if (headerPanel != null)
             headerPanel.Invalidate(true);
+        dungeonRadar.Invalidate();
+        Invalidate(true);
     }
 
-    Panel logHost;
     // Window title starts with the character name, so two running copies can be told apart in the taskbar.
-
     void UpdateTitle()
     {
         string name = snapshot == null ? null : snapshot.CharacterName;
@@ -160,68 +164,79 @@ sealed partial class MemorySelectV3Form
             Text = title;
     }
 
-    // Theme choice sits in the top right corner, under the brand text.
-
-    void PlaceThemePicker(Label label)
+    // Right side of the header: release notes button and the accent colour choice.
+    void PlaceHeaderRight()
     {
-        if (!headerPanel.Controls.Contains(themePicker))
-        {
-            headerPanel.Controls.Add(label);
-            headerPanel.Controls.Add(themePicker);
-            label.BringToFront();
-            themePicker.BringToFront();
-        }
-        themePicker.Location = new Point(Math.Max(10, headerPanel.ClientSize.Width - themePicker.Width - 18), 48);
-        label.Location = new Point(themePicker.Left - label.PreferredWidth - 8, 52);
+        if (headerPanel == null || whatsNewButton == null)
+            return;
+        int right = headerPanel.ClientSize.Width - 20;
+        themePicker.Location = new Point(Math.Max(10, right - themePicker.Width), 49);
+        themeLabel.Location = new Point(themePicker.Left - themeLabel.PreferredWidth - 8, 53);
+        whatsNewButton.Location = new Point(themeLabel.Left - whatsNewButton.Width - 16, 46);
     }
 
-    // Activity log in a rounded card with a title instead of a bare text box.
+    void SetLogCollapsed(bool collapsed)
+    {
+        if (logHost == null || collapsed == logCollapsed)
+            return;
+        logCollapsed = collapsed;
+        logHost.Height = collapsed ? 62 : 156;
+        activityView.Visible = !collapsed;
+        logToggle.Text = collapsed ? "Göster" : "Gizle";
+    }
 
+    // The activity log: a white card with its own title and a button that folds it away to give the pages more room.
     Panel BuildLogHost()
     {
-        logHost = new Panel { Dock = DockStyle.Bottom, Height = 156, Padding = new Padding(16, 34, 16, 14) };
-        Fancy.Buffer(logHost);
+        logHost = new Panel { Dock = DockStyle.Bottom, Height = 156, Padding = new Padding(Ui.Pad, 0, Ui.Pad, Ui.Pad) };
+        logCard = new CardBox("Etkinlik günlüğü") { AutoSize = false, Dock = DockStyle.Fill, Margin = new Padding(0) };
+        logCard.Padding = new Padding(Ui.Pad, CardBox.TitleHeight + 4, Ui.Pad, 10);
         activityView.Dock = DockStyle.Fill;
         activityView.BorderStyle = BorderStyle.None;
-        activityView.Font = new Font("Consolas", 9.5f);
-        logHost.Controls.Add(activityView);
-        logHost.Paint += delegate(object sender, PaintEventArgs e)
+        activityView.Font = Ui.Mono;
+        logCard.Controls.Add(activityView);
+        logToggle = new Button { Text = "Gizle", Size = new Size(76, 30), Anchor = AnchorStyles.Top | AnchorStyles.Right };
+        logToggle.Location = new Point(logCard.Width - logToggle.Width - 10, 7);
+        Fancy.Kind(logToggle, ButtonKind.Ghost);
+        logToggle.Click += delegate
         {
-            var g = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            var r = new Rectangle(8, 6, logHost.Width - 17, logHost.Height - 13);
-            if (r.Width < 20 || r.Height < 20)
-                return;
-            using (var path = Fancy.RoundPath(r, 10))
-            {
-                using (var fill = new SolidBrush(activityView.BackColor))
-                    g.FillPath(fill, path);
-                using (var pen = new Pen(Color.FromArgb(150, accentColor), 1.2f))
-                    g.DrawPath(pen, path);
-            }
-            using (var font = new Font("Segoe UI Semibold", 9.5f))
-                using (var brush = new SolidBrush(accentColor))
-                    g.DrawString("Etkinlik günlüğü", font, brush, 18, 11);
+            logUserChoice = true;
+            SetLogCollapsed(!logCollapsed);
         };
+        // On small windows the log folds away by itself until the user decides otherwise.
+        Resize += delegate
+        {
+            if (!logUserChoice)
+                SetLogCollapsed(ClientSize.Height < 780);
+        };
+        logCard.Controls.Add(logToggle);
+        logToggle.BringToFront();
+        logHost.Controls.Add(logCard);
         return logHost;
     }
 
-    Panel headerPanel;
-    AuroraBar aurora;
-
+    // Header: white bar with the application name on the left and the connection controls next to it.
     void PaintHeader(object sender, PaintEventArgs e)
     {
+        var g = e.Graphics;
         var r = headerPanel.ClientRectangle;
         if (r.Width < 2 || r.Height < 2)
             return;
-        Color from = headerPanel.BackColor, to = Fancy.Mix(from, accentColor, 0.30f);
-        using (var brush = new System.Drawing.Drawing2D.LinearGradientBrush(r, from, to, 0f))
-            e.Graphics.FillRectangle(brush, r);
-    }
-
-    static Color C(int r, int g, int b)
-    {
-        return Color.FromArgb(r, g, b);
+        g.Clear(Ui.Surface);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var mark = new Rectangle(20, 12, 32, 32);
+        using (var path = Ui.RoundRect(mark, 8))
+            using (var fill = new SolidBrush(Ui.Accent))
+                g.FillPath(fill, path);
+        TextRenderer.DrawText(g, "R", Ui.Title, mark, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(g, AppPaths.AppName, Ui.Heading, new Point(60, 10), Ui.Text);
+        TextRenderer.DrawText(g, "Sürüm " + Application.ProductVersion, Ui.Small, new Point(61, 31), Ui.TextMuted);
+        using (var line = new Pen(Ui.Border))
+            g.DrawLine(line, 0, r.Height - 1, r.Width, r.Height - 1);
+        // Connection indicator in front of the status line
+        Color dot = reader == null ? Ui.BorderStrong : Ui.Success;
+        using (var brush = new SolidBrush(dot))
+            g.FillEllipse(brush, 22, 62, 10, 10);
     }
 
     void OpenManual()
@@ -249,238 +264,5 @@ sealed partial class MemorySelectV3Form
         {
             return number.ToString("000") + " · " + name;
         }
-    }
-}
-
-// Buttons with rounded corners, a soft gradient and a hover/press fade.
-
-static class Fancy
-{
-    sealed class State
-    {
-        internal float T;
-        internal bool Over, Down;
-        internal Color Base, Hover, Pressed;
-    }
-
-    static readonly Dictionary<Button, State> states = new Dictionary<Button, State>();
-    static readonly Timer timer = new Timer { Interval = 16 };
-    static Font groupFont;
-
-    static Fancy()
-    {
-        timer.Tick += Step;
-    }
-
-    internal static Font GroupFont
-    {
-        get { return groupFont ?? (groupFont = new Font("Segoe UI Semibold", 10f)); }
-    }
-
-    internal static Color Mix(Color a, Color b, float t)
-    {
-        return Color.FromArgb(255, (int)(a.R + (b.R - a.R) * t), (int)(a.G + (b.G - a.G) * t), (int)(a.B + (b.B - a.B) * t));
-    }
-
-    internal static void Buffer(Control c)
-    {
-        try
-        {
-            typeof(Control).GetProperty("DoubleBuffered", BindingFlags.NonPublic | BindingFlags.Instance).SetValue(c,
-                true, null);
-        }
-        catch { }
-    }
-
-    static Color BackOf(Control c)
-    {
-        for (Control p = c.Parent; p != null; p = p.Parent)
-            if (p.BackColor.A == 255)
-                return p.BackColor;
-        return SystemColors.Control;
-    }
-
-    internal static void Style(Button b, Color accent, Color hover, Color down)
-    {
-        State s;
-        if (!states.TryGetValue(b, out s))
-        {
-            s = new State();
-            states[b] = s;
-            b.FlatStyle = FlatStyle.Flat;
-            b.FlatAppearance.BorderSize = 0;
-            b.UseVisualStyleBackColor = false;
-            b.Cursor = Cursors.Hand;
-            b.Font = new Font("Segoe UI Semibold", b.Font.SizeInPoints, FontStyle.Regular);
-            Buffer(b);
-            b.MouseEnter += delegate
-            {
-                s.Over = true;
-                timer.Start();
-            };
-            b.MouseLeave += delegate
-            {
-                s.Over = false;
-                s.Down = false;
-                timer.Start();
-            };
-            b.MouseDown += delegate
-            {
-                s.Down = true;
-                b.Invalidate();
-            };
-            b.MouseUp += delegate
-            {
-                s.Down = false;
-                b.Invalidate();
-            };
-            b.EnabledChanged += delegate { b.Invalidate(); };
-            b.Disposed += delegate { states.Remove(b); };
-            b.Paint += delegate(object o, PaintEventArgs e) { Draw(b, e.Graphics, s); };
-        }
-        s.Base = accent;
-        s.Hover = hover;
-        s.Pressed = down;
-        // The default painter is hidden behind the custom one: same colour as the surroundings.
-        Color back = BackOf(b);
-        b.BackColor = back;
-        b.ForeColor = back;
-        b.FlatAppearance.MouseOverBackColor = back;
-        b.FlatAppearance.MouseDownBackColor = back;
-        b.Invalidate();
-    }
-
-    internal static GraphicsPath RoundPath(Rectangle r, int radius)
-    {
-        return Round(r, radius);
-    }
-
-    static GraphicsPath Round(Rectangle r, int radius)
-    {
-        int d = radius * 2;
-        var path = new GraphicsPath();
-        path.AddArc(r.X, r.Y, d, d, 180, 90);
-        path.AddArc(r.Right - d, r.Y, d, d, 270, 90);
-        path.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
-        path.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
-        path.CloseFigure();
-        return path;
-    }
-
-    static void Draw(Button b, Graphics g, State s)
-    {
-        if (b.Width < 4 || b.Height < 4)
-            return;
-        Color back = BackOf(b);
-        g.Clear(back);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        Color c = !b.Enabled ? Mix(back, s.Base, 0.35f) : s.Down ? s.Pressed : Mix(s.Base, s.Hover, s.T);
-        var r = new Rectangle(0, 0, b.Width - 1, b.Height - 1);
-        using (var path = Round(r, 8))
-        {
-            using (var brush = new LinearGradientBrush(r, Mix(c, Color.White, 0.16f), c, 90f))
-                g.FillPath(brush, path);
-            if (s.T > 0.02f && b.Enabled)
-                using (var pen = new Pen(Color.FromArgb((int)(110 * s.T), Color.White), 1f))
-                    g.DrawPath(pen, path);
-        }
-        var text = new Rectangle(4, 0, b.Width - 8, b.Height);
-        TextRenderer.DrawText(g, b.Text, b.Font, text, b.Enabled ? Color.White : Color.FromArgb(215, 225, 225, 225),
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine);
-    }
-
-    static void Step(object sender, EventArgs e)
-    {
-        bool busy = false;
-        foreach (var pair in new List<KeyValuePair < Button, State>>(states))
-        {
-            var s = pair.Value;
-            float target = s.Over ? 1f : 0f, delta = target - s.T;
-            if (Math.Abs(delta) > 0.02f)
-            {
-                s.T += delta * 0.3f;
-                busy = true;
-                pair.Key.Invalidate();
-            }
-            else if (s.T != target)
-            {
-                s.T = target;
-                pair.Key.Invalidate();
-            }
-        }
-        if (!busy)
-            timer.Stop();
-    }
-}
-
-// Thin accent bar under the header with a light that keeps sliding across.
-
-sealed class AuroraBar : Control
-{
-    readonly Timer timer = new Timer { Interval = 33 };
-    float offset;
-    Color accent = Color.FromArgb(193, 151, 72);
-
-    internal Color Accent
-    {
-        get { return accent; }
-        set
-        {
-            accent = value;
-            Invalidate();
-        }
-    }
-
-    internal AuroraBar()
-    {
-        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint | ControlStyles.ResizeRedraw,
-            true);
-        timer.Tick += delegate
-        {
-            offset = (offset + 3f) % 1000f;
-            Invalidate();
-        };
-        timer.Start();
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-            timer.Dispose();
-        base.Dispose(disposing);
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        var r = ClientRectangle;
-        if (r.Width < 2 || r.Height < 1)
-            return;
-        Color dark = Fancy.Mix(Color.Black, accent, 0.25f), bright = Fancy.Mix(accent, Color.White, 0.55f);
-        e.Graphics.Clear(dark);
-        using (var brush = new LinearGradientBrush(new Rectangle(0, 0, 500, Math.Max(1, r.Height)), dark, dark, 0f))
-        {
-            var blend = new ColorBlend(5);
-            blend.Colors = new[] { dark, accent, bright, accent, dark };
-            blend.Positions = new[] { 0f, 0.3f, 0.5f, 0.7f, 1f };
-            brush.InterpolationColors = blend;
-            brush.WrapMode = WrapMode.Tile;
-            brush.TranslateTransform(offset - 500f, 0);
-            e.Graphics.FillRectangle(brush, r);
-        }
-    }
-}
-
-// Page host without header strip and without the white frame the system draws around tab pages.
-
-sealed class FlatTabs : TabControl
-{
-    protected override void WndProc(ref Message m)
-    {
-        if (m.Msg == 0x1328 && !DesignMode)
-        {
-            m.Result = IntPtr.Zero;
-            return;
-        } // TCM_ADJUSTRECT: pages use the whole control
-        base.WndProc(ref m);
     }
 }

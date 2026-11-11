@@ -63,18 +63,20 @@ sealed partial class MemorySelectV3Form
         }
         var page = new TabPage("Çift Hesap · Deneme");
         tabs.TabPages.Add(page);
-        var layout = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents =
-            false, Padding = new Padding(20), AutoScroll = true };
-        page.Controls.Add(layout);
-        layout.Controls.Add(new Label { Text = "İki ayrı hesap profili · Sırayla oyun penceresini öne alır", AutoSize =
-            true, Font = new Font(Font, FontStyle.Bold) });
+        var layout = PageCard(page, "Çift hesap · Deneme", 780);
+        layout.Controls.Add(Hint("İki ayrı hesap profili · Sırayla oyun penceresini öne alır", 740));
+        var accountCaptions = new[] { "Birinci hesap", "İkinci hesap" };
+        int accountIndex = 0;
         foreach (var box in new[] { firstAccount, secondAccount })
         {
-            box.Width = 650;
+            layout.Controls.Add(Caption(accountCaptions[accountIndex++]));
+            box.Width = 620;
             box.DropDownStyle = ComboBoxStyle.DropDownList;
+            box.Margin = new Padding(0, 0, 0, 12);
             layout.Controls.Add(box);
         }
-        var refresh = new Button { Text = "Oyunları yenile", Width = 200 };
+        var refresh = new Button { Text = "Oyunları yenile", Width = 180, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 0, 14) };
+        Fancy.Kind(refresh, ButtonKind.Secondary);
         refresh.Click += delegate
         {
             firstAccount.Items.Clear();
@@ -95,12 +97,14 @@ sealed partial class MemorySelectV3Form
         };
         layout.Controls.Add(refresh);
         refresh.PerformClick();
-        layout.Controls.Add(new Label { Text = "Her oyun için önde kalma süresi (saniye)", AutoSize = true });
+        layout.Controls.Add(Caption("Her oyun için önde kalma süresi (saniye)"));
         dualSeconds.Minimum = 3;
         dualSeconds.Maximum = 60;
         dualSeconds.Value = 3;
+        dualSeconds.Margin = new Padding(0, 0, 0, 14);
         layout.Controls.Add(dualSeconds);
-        var open = new Button { Text = "İki hesap panelini aç", Width = 260 };
+        var open = new Button { Text = "İki hesap panelini aç", Width = 260, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 0, 8) };
+        Fancy.Kind(open, ButtonKind.Primary);
         open.Click += delegate
         {
             Safe(delegate
@@ -115,7 +119,8 @@ sealed partial class MemorySelectV3Form
             });
         };
         layout.Controls.Add(open);
-        var start = new Button { Text = "Pencere geçişini başlat", Width = 260 };
+        var start = new Button { Text = "Pencere geçişini başlat", Width = 260, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 0, 8) };
+        Fancy.Kind(start, ButtonKind.Success);
         start.Click += delegate
         {
             Safe(delegate
@@ -134,19 +139,20 @@ sealed partial class MemorySelectV3Form
             });
         };
         layout.Controls.Add(start);
-        var stop = new Button { Text = "Pencere geçişini durdur", Width = 260 };
+        var stop = new Button { Text = "Pencere geçişini durdur", Width = 260, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 0, 14) };
+        Fancy.Kind(stop, ButtonKind.Danger);
         stop.Click += delegate
         {
             dualTimer.Stop();
             dualStatus.Text = "Geçiş kapalı. Hesap botlarını kendi Durdur düğmelerinden durdur.";
         };
         layout.Controls.Add(stop);
-        dualStatus.Width = 750;
-        dualStatus.Height = 85;
+        dualStatus.Width = 740;
+        dualStatus.Height = 56;
         layout.Controls.Add(dualStatus);
         layout.Controls.Add(new Label { Text =
             "Başka uygulama öndeyken geçiş bekler. Botları durdurmak için her hesap panelindeki Durdur düğmesini kullan. Ayrı kısayollar ata. Bu deneme saldırı sürekliliğini garanti etmez.",
-            Width = 750, Height = 85 });
+            Width = 740, Height = 70, Tag = "muted" });
         dualTimer.Interval = 250;
         dualTimer.Tick += delegate
         {

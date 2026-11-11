@@ -141,8 +141,8 @@ sealed class WorldMapView : Control
         };
         allBox.Text = "Tüm dungeon rotalarını renkli göster";
         allBox.AutoSize = true;
-        allBox.BackColor = Color.FromArgb(16, 22, 34);
-        allBox.ForeColor = Color.White;
+        allBox.BackColor = Ui.Surface;
+        allBox.ForeColor = Ui.Text;
         allBox.Location = new Point(8, 8);
         allBox.CheckedChanged += delegate
         {
@@ -154,8 +154,8 @@ sealed class WorldMapView : Control
         Controls.Add(allBox);
         learnBox.Text = "Yol öğret: işaretle, karakteri elle yürüt, işareti kaldır";
         learnBox.AutoSize = true;
-        learnBox.BackColor = Color.FromArgb(16, 22, 34);
-        learnBox.ForeColor = Color.Gold;
+        learnBox.BackColor = Ui.Surface;
+        learnBox.ForeColor = Ui.Text;
         learnBox.Location = new Point(8, 34);
         learnBox.CheckedChanged += delegate
         {
@@ -176,21 +176,17 @@ sealed class WorldMapView : Control
         centerButton.Text = "Merkezle";
         centerButton.Location = new Point(184, 61);
         centerButton.Size = new Size(84, 25);
-        centerButton.FlatStyle = FlatStyle.Flat;
-        centerButton.BackColor = Color.FromArgb(200, 160, 40);
-        centerButton.ForeColor = Color.Black;
+        Fancy.Kind(centerButton, ButtonKind.Primary);
         centerButton.Click += delegate { CenterOnPlayer(); };
         Controls.Add(centerButton);
         foreach (var pair in new[] { Tuple.Create(exportButton, "Yollarımı kopyala", 274), Tuple.Create(importButton,
-            "Yolları yapıştır", 384) })
+            "Yolları yapıştır", 422) })
         {
             var button = pair.Item1;
             button.Text = pair.Item2;
             button.Location = new Point(pair.Item3, 61);
-            button.Size = new Size(104, 25);
-            button.FlatStyle = FlatStyle.Flat;
-            button.BackColor = Color.FromArgb(40, 52, 76);
-            button.ForeColor = Color.White;
+            button.Size = new Size(ReferenceEquals(button, exportButton) ? 140 : 130, 25);
+            Fancy.Kind(button, ButtonKind.Secondary);
             Controls.Add(button);
         }
         exportButton.Click += delegate

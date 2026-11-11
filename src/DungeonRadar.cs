@@ -5,6 +5,10 @@ using System.Windows.Forms;
 
 sealed class DungeonRadar : Control
 {
+    readonly Brush muted = new SolidBrush(Ui.TextMuted), floorBrush = new SolidBrush(Color.FromArgb(203, 213, 225)),
+        coveredBrush = new SolidBrush(Color.FromArgb(134, 239, 172)), routeBrush = new SolidBrush(Color.FromArgb(37, 99, 235)),
+        mobBrush = new SolidBrush(Color.FromArgb(220, 38, 38)), selectedBrush = new SolidBrush(Color.FromArgb(217, 119, 6)),
+        playerBrush = new SolidBrush(Color.FromArgb(37, 99, 235));
     DungeonLocation preview;
     FloorNavigation previewFloor;
 
@@ -24,8 +28,8 @@ sealed class DungeonRadar : Control
     internal DungeonRadar()
     {
         DoubleBuffered = true;
-        BackColor = Color.FromArgb(21, 34, 52);
-        ForeColor = Color.White;
+        BackColor = Ui.Surface;
+        ForeColor = Ui.Text;
         Dock = DockStyle.Fill;
     }
 
@@ -34,13 +38,16 @@ sealed class DungeonRadar : Control
         base.OnPaint(e);
         var g = e.Graphics;
         g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        g.DrawString("CANLI İÇ HARİTA · oyun navigasyonu · kayıtlı / canlı zemin", Font, Brushes.White, 12, 10);
+        g.Clear(Ui.Surface);
+        using (var ink = new SolidBrush(Ui.Text))
+            g.DrawString("Canlı iç harita · oyun navigasyonu · kayıtlı / canlı zemin", Ui.BodyBold, ink, 12, 10);
         if (Preview != null && (Snapshot == null || Run == null || Run.Location != Preview || !Run.IsRegion(Snapshot.Player)))
         {
-            g.DrawString(Preview.Code + " · " + Preview.Name + " · " + Preview.Mode, Font, Brushes.Gold, 12, 38);
+            using (var accent = new SolidBrush(Ui.Accent))
+                g.DrawString(Preview.Code + " · " + Preview.Name + " · " + Preview.Mode, Ui.BodyBold, accent, 12, 38);
             if (previewFloor == null)
             {
-                g.DrawString("Bu modun kayıtlı iç haritası yok; içeri girince canlı görünüm açılır.", Font, Brushes.LightSteelBlue,
+                g.DrawString("Bu modun kayıtlı iç haritası yok; içeri girince canlı görünüm açılır.", Ui.Body, muted,
                     12, 65);
                 return;
             }
@@ -52,23 +59,23 @@ sealed class DungeonRadar : Control
             foreach (var p in points)
             {
                 float size = (float)(previewFloor.Step * previewscale);
-                g.FillRectangle(Brushes.SlateGray, 25 + (float)((p.X - previewminX) * previewscale), 85 + (float)((previewmaxY - p.Y) * previewscale),
+                g.FillRectangle(floorBrush, 25 + (float)((p.X - previewminX) * previewscale), 85 + (float)((previewmaxY - p.Y) * previewscale),
                     size, size);
             }
-            g.DrawString("Kayıtlı Solo Trial zemini · canlı mob bilgisi içeride gösterilir", Font, Brushes.LightSteelBlue,
+            g.DrawString("Kayıtlı Solo Trial zemini · canlı mob bilgisi içeride gösterilir", Ui.Body, muted,
                 12, 60);
             return;
         }
         if (Snapshot == null || Run == null || (Preview ?? Run.Location) == null)
         {
-            g.DrawString("Dungeon seçip bağlandıktan sonra konumlar burada görünür.", Font, Brushes.LightSteelBlue, 12,
+            g.DrawString("Dungeon seçip bağlandıktan sonra konumlar burada görünür.", Ui.Body, muted, 12,
                 42);
             return;
         }
         var selected = Preview ?? Run.Location;
         if (!V3Data.IsCrypt(Snapshot.Player) || !Run.IsRegion(Snapshot.Player) || Run.Location != selected)
         {
-            g.DrawString("Karakter seçilen dungeon iç bölgesinde değil.", Font, Brushes.LightSteelBlue, 12, 42);
+            g.DrawString("Karakter seçilen dungeon iç bölgesinde değil.", Ui.Body, muted, 12, 42);
             return;
         }
         var d = selected;
@@ -76,7 +83,7 @@ sealed class DungeonRadar : Control
         double scale = Math.Max(.1, Math.Min((Width - 100) / 192.0, (Height - 95) / 384.0));
         float left = (float)((Width - 192 * scale) / 2), top = 48;
         Func<Position, PointF> pixel = p => new PointF(left + (float)((p.X - minX) * scale), top + (float)((minY + 384 - p.Y) * scale));
-        using (var pen = new Pen(Color.FromArgb(52, 75, 103)))
+        using (var pen = new Pen(Ui.Divider))
         {
             for (int i = 0; i <= 6; i++)
                 g.DrawLine(pen, left + (float)(i * 32 * scale), top, left + (float)(i * 32 * scale), top + (float)(384 * scale));
@@ -90,25 +97,26 @@ sealed class DungeonRadar : Control
             {
                 var q = pixel(floor.PositionOf(pair.Value));
                 float size = (float)(floor.Step * scale);
-                g.FillRectangle(floor.Covered.Contains(pair.Key) ? Brushes.DarkSlateGray : Brushes.SlateGray, q.X - size / 2,
+                g.FillRectangle(floor.Covered.Contains(pair.Key) ? coveredBrush : floorBrush, q.X - size / 2,
                     q.Y - size / 2, size, size);
             }
             g.DrawString((floor.Done ? "Zemin çıkarıldı" : "Zemin okunuyor") + " · " + floor.Cells.Count +
-                " nokta · Taranan: " + floor.Covered.Count, Font, Brushes.LightSteelBlue, 12, 32);
+                " nokta · Taranan: " + floor.Covered.Count, Ui.Body, muted, 12, 32);
         }
         foreach (var p in Run.Route.Skip(Run.Waypoint))
         {
             var q = pixel(p);
-            g.FillEllipse(Brushes.LightGreen, q.X - 2, q.Y - 2, 4, 4);
+            g.FillEllipse(routeBrush, q.X - 2, q.Y - 2, 4, 4);
         }
         foreach (var mob in Snapshot.Monsters.Where(m => m.Alive && Run.IsRegion(m.Position)))
         {
             var q = pixel(mob.Position);
-            g.FillEllipse(mob.Uid == Snapshot.Selected ? Brushes.Gold : Brushes.OrangeRed, q.X - 4, q.Y - 4, 8, 8);
+            g.FillEllipse(mob.Uid == Snapshot.Selected ? selectedBrush : mobBrush, q.X - 4, q.Y - 4, 8, 8);
         }
         var player = pixel(Snapshot.Player);
-        g.FillEllipse(Brushes.Cyan, player.X - 5, player.Y - 5, 10, 10);
-        g.DrawString("Sen · " + Snapshot.Player.X.ToString("F1") + " / " + Snapshot.Player.Y.ToString("F1"), Font,
-            Brushes.Cyan, player.X + 8, player.Y - 8);
+        g.FillEllipse(Brushes.White, player.X - 7, player.Y - 7, 14, 14);
+        g.FillEllipse(playerBrush, player.X - 5, player.Y - 5, 10, 10);
+        g.DrawString("Sen · " + Snapshot.Player.X.ToString("F1") + " / " + Snapshot.Player.Y.ToString("F1"), Ui.BodyBold,
+            playerBrush, player.X + 10, player.Y - 9);
     }
 }

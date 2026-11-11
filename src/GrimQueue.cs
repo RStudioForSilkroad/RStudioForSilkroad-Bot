@@ -30,29 +30,30 @@ sealed partial class MemorySelectV3Form
 
     void BuildQueuePanel(Control host)
     {
-        var panel = new Panel { Dock = DockStyle.Bottom, Height = 276, Padding = new Padding(6) };
+        var panel = new Panel { Dock = DockStyle.Bottom, Height = 246, Padding = new Padding(0, 10, 0, 0) };
         var title = new Label { Text = "Çalıştırma sırası · Solo Trial · seçtiğin sırayla çalışır", Dock = DockStyle.Top,
-            Height = 24, TextAlign = ContentAlignment.MiddleLeft };
+            Height = 28, TextAlign = ContentAlignment.MiddleLeft, Font = Ui.Heading };
         queueInfo.Dock = DockStyle.Top;
-        queueInfo.Height = 40;
+        queueInfo.Height = 38;
+        queueInfo.Font = Ui.Small;
+        queueInfo.Tag = "muted";
         queueInfo.Text = "Sıra boş. Tablodan bir dungeon seçip Ekle / Çıkar'a bas; tabloda çift tık da çalışır.";
         queueList.Dock = DockStyle.Fill;
         queueList.IntegralHeight = false;
+        queueList.BorderStyle = BorderStyle.FixedSingle;
         queueList.HorizontalScrollbar = true;
         queueList.DoubleClick += delegate { Safe(RemoveSelectedFromQueue); };
-        var side = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 190, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false };
-        side.Controls.Add(Btn("Ekle / Çıkar", ToggleSelectedInQueue, 170));
-        var arrows = new FlowLayoutPanel { Width = 176, Height = 38, WrapContents = false, Margin = new Padding(0) };
-        arrows.Controls.Add(Btn("▲", delegate { MoveQueue(-1); }, 80));
-        arrows.Controls.Add(Btn("▼", delegate { MoveQueue(1); }, 80));
-        side.Controls.Add(arrows);
-        side.Controls.Add(Btn("Temizle", ClearQueue, 170));
-        side.Controls.Add(Btn("Sırayı başlat", StartQueue, 170));
+        var side = new FlowLayoutPanel { Dock = DockStyle.Right, Width = 236, FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true, Padding = new Padding(12, 0, 0, 0) };
+        side.Controls.Add(Btn("Ekle / Çıkar", ToggleSelectedInQueue, 100, true, ButtonKind.Primary));
+        side.Controls.Add(Btn("▲", delegate { MoveQueue(-1); }, 44));
+        side.Controls.Add(Btn("▼", delegate { MoveQueue(1); }, 44));
+        side.Controls.Add(Btn("Temizle", ClearQueue, 84));
+        side.Controls.Add(Btn("Sırayı başlat", StartQueue, 120, true, ButtonKind.Success));
         queueReturnScroll.Text = "Sıra bitince Return Scroll ile şehre dön";
         queueReturnScroll.AutoSize = false;
-        queueReturnScroll.Width = 176;
-        queueReturnScroll.Height = 46;
+        queueReturnScroll.Width = 212;
+        queueReturnScroll.Height = 52;
         queueReturnScroll.CheckedChanged += delegate { SaveSettings(); };
         locked.Add(queueReturnScroll);
         side.Controls.Add(queueReturnScroll);
@@ -60,8 +61,7 @@ sealed partial class MemorySelectV3Form
         panel.Controls.Add(side);
         panel.Controls.Add(queueInfo);
         panel.Controls.Add(title);
-        host.Controls.Add(panel);
-        dungeonGrid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
+        host.Controls.Add(panel);        dungeonGrid.CellDoubleClick += delegate(object sender, DataGridViewCellEventArgs e)
         {
             if (e.RowIndex < 0 || e.ColumnIndex == 0)
                 return;

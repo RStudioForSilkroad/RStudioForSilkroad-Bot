@@ -16,7 +16,15 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.5.0.0", Title = "Silkroad R Studio",
+    internal static readonly Entry[] All = { new Entry { Version = "3.6.0.0", Title = "Yeni beyaz arayüz",
+        Items = new[] { "Tamamen yenilenmiş beyaz tasarım: açık gri zemin, beyaz kartlar, okunaklı yazı tipleri ve her yerde aynı düğme, tablo ve giriş kutusu stili.",
+        "Soldaki menü simgeli ve iki gruba ayrıldı (Çalışma / Araçlar); üst çubukta bağlantı durumu noktası, altta renkli Başlat / Durdur düğmeleri.",
+        "Av / Ayarlar sayfası geniş ekranda iki sütun, dar pencerede tek sütun olur; hiçbir kontrol kesilmez. Canlı durum tablosu tam genişliktedir.",
+        "Karakter durumu paneli yeniden çizildi: HP / MP / EXP / SP çubukları, seviye rozeti ve oturum hızları açık zeminde daha okunaklı.",
+        "Vurgu rengi seçilebilir (Mavi, Zümrüt, Mor, Turuncu, Gül, Turkuaz, Grafit); tüm renkler beyaz yazıyla en az 4,5:1 kontrast taşır.",
+        "Klavyeyle gezinme: odaklı düğmede halka, sekme şeridinde ok tuşları. Küçük pencerelerde etkinlik günlüğü kendiliğinden katlanır.",
+        "Tasarım kuralları docs/design-system.md içinde; testler üç pencere boyutunda kesilen kontrol arar." } },
+        new Entry { Version = "3.5.0.0", Title = "Silkroad R Studio",
         Items = new[] { "Program adı Silkroad R Studio oldu; pencere başlığı, üst çubuk ve dosya adı (SilkroadRStudio.exe) buna göre değişti.",
         "Güncellemeler artık bu projenin kendi GitHub sürümlerinden gelir ve yeni bir yayıncı anahtarıyla imzalanır. Eski New Era Memory Select sürümleri bu zincire güncellenemez; bir kez elle indirmek gerekir.",
         "Ayarlar %LOCALAPPDATA%\\SilkroadRStudio klasörüne taşındı; eski klasördeki ayarlar ilk açılışta otomatik kopyalanır." } },
@@ -86,23 +94,23 @@ sealed class WhatsNewForm : Form
         MinimizeBox = false;
         ShowInTaskbar = false;
         ClientSize = new Size(640, 600);
-        BackColor = back;
-        ForeColor = fore;
-        Font = new Font("Segoe UI", 10f);
+        BackColor = Ui.Surface;
+        ForeColor = Ui.Text;
+        Font = Ui.Body;
 
-        var head = new Label { Text = "Güncellendi: sürüm " + version, Font = new Font("Segoe UI", 15f, FontStyle.Bold),
-            ForeColor = Color.FromArgb(255, 205, 80), Left = 18, Top = 14, Width = 600, Height = 32 };
+        var head = new Label { Text = "Güncellendi: sürüm " + version, Font = Ui.Title,
+            ForeColor = Ui.Accent, Left = 18, Top = 14, Width = 600, Height = 32 };
         var notes = new RichTextBox { Left = 20, Top = 54, Width = 600, Height = 480, ReadOnly = true, BorderStyle =
-            BorderStyle.None, BackColor = back, ForeColor = fore, DetectUrls = false, TabStop = false };
-        var bold = new Font("Segoe UI", 11f, FontStyle.Bold);
-        var normal = new Font("Segoe UI", 10f);
+            BorderStyle.None, BackColor = Ui.Surface, ForeColor = Ui.Text, DetectUrls = false, TabStop = false };
+        var bold = Ui.Heading;
+        var normal = Ui.Body;
         foreach (var e in ReleaseNotes.All)
         {
             notes.SelectionFont = bold;
-            notes.SelectionColor = e.Version == version ? Color.FromArgb(255, 205, 80) : fore;
+            notes.SelectionColor = e.Version == version ? Ui.Accent : Ui.Text;
             notes.AppendText(e.Version + " · " + e.Title + (e.Version == version ? "  (bu sürüm)" : "") + "\n");
             notes.SelectionFont = normal;
-            notes.SelectionColor = fore;
+            notes.SelectionColor = Ui.Text;
             notes.SelectionIndent = 14;
             notes.SelectionHangingIndent = 14;
             foreach (var item in e.Items)
@@ -117,7 +125,8 @@ sealed class WhatsNewForm : Form
         hide.Left = 20;
         hide.Top = ClientSize.Height - 40;
         var ok = new Button { Text = "Tamam", DialogResult = DialogResult.OK, Width = 110, Height = 30, Left = 510, Top =
-            ClientSize.Height - 44, FlatStyle = FlatStyle.System };
+            ClientSize.Height - 46 };
+        Fancy.Kind(ok, ButtonKind.Primary);
         AcceptButton = ok;
         Controls.AddRange(new Control[] { head, notes, hide, ok });
     }

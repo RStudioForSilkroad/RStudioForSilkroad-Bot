@@ -11,6 +11,27 @@ class V3Checks
 {
     static readonly List<string> passed = new List<string>();
 
+    // Visible controls whose bounds leave the area of their parent. Docked controls and scrolling panels are fine.
+    static IEnumerable<string> ClippedControls(Control root)
+    {
+        foreach (Control c in root.Controls)
+        {
+            if (!c.Visible)
+                continue;
+            var parent = c.Parent;
+            var scroller = parent as ScrollableControl;
+            bool scrolls = scroller != null && scroller.AutoScroll;
+            if (c.Dock == DockStyle.None && !scrolls && parent.ClientSize.Width > 40 && parent.ClientSize.Height > 20 && !(parent is TabControl))
+            {
+                if (c.Right > parent.ClientSize.Width + 1 || c.Bottom > parent.ClientSize.Height + 1 || c.Left < -1)
+                    yield return c.GetType().Name + " '" + (c.Text.Length > 30 ? c.Text.Substring(0, 30) : c.Text) + "' " + c.Bounds + " in " + parent.GetType().Name + " " +
+                        parent.ClientSize;
+            }
+            foreach (string inner in ClippedControls(c))
+                yield return inner;
+        }
+    }
+
     static void A(bool test, string name)
     {
         if (!test)
@@ -590,6 +611,46 @@ class V3Checks
                 bitmap.Save("tests/Preview-" + i + ".png");
             }
         }
+        // Layout checks at the smallest and a large window size: nothing may be cut off, previews are kept for review.
+        var report = new List<string>();
+        foreach (var size in new[] { new Size(1120, 700), new Size(1480, 900), new Size(1920, 1080) })
+        {
+            form.ClientSize = size;
+            Application.DoEvents();
+            for (int i = 0; i < tabs.TabCount; i++)
+            {
+                tabs.SelectedIndex = i;
+                Application.DoEvents();
+                form.PerformLayout();
+                foreach (string problem in ClippedControls(form))
+                    report.Add(size.Width + "x" + size.Height + " · " + tabs.TabPages[i].Text + " · " + problem);
+                if (i == 0 || i == 2)
+                    using (var bitmap = new Bitmap(form.Width, form.Height))
+                    {
+                        form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+                        bitmap.Save("tests/Preview-" + i + "-" + size.Width + ".png");
+                    }
+                if (i == 2 && size.Width == 1480)
+                {
+                    var views = (TabControl)typeof(MemorySelectV3Form).GetField("grimViews", flags).GetValue(form);
+                    for (int view = 1; view < views.TabCount; view++)
+                    {
+                        views.SelectedIndex = view;
+                        Application.DoEvents();
+                        foreach (string problem in ClippedControls(form))
+                            report.Add(size.Width + "x" + size.Height + " · Grim · " + views.TabPages[view].Text + " · " + problem);
+                        using (var bitmap = new Bitmap(form.Width, form.Height))
+                        {
+                            form.DrawToBitmap(bitmap, new Rectangle(0, 0, bitmap.Width, bitmap.Height));
+                            bitmap.Save("tests/Preview-grim-view" + view + ".png");
+                        }
+                    }
+                    views.SelectedIndex = 0;
+                }
+            }
+        }
+        File.WriteAllLines("tests/Layout-Report.txt", report.Count == 0 ? new[] { "No clipped controls." } : report.ToArray());
+        A(report.Count == 0, "No control is cut off at 1120x700, 1480x900 and 1920x1080 (see tests/Layout-Report.txt)");
         form.Close();
         form.Dispose();
         if (args.Length > 0)

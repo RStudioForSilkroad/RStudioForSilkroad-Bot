@@ -29,13 +29,17 @@ sealed partial class MemorySelectV3Form
     {
         var page = new TabPage("Log");
         tabs.TabPages.Add(page);
-        var tools = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 45 };
+        var tools = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 58, Padding = new Padding(Ui.Pad, 12, Ui.Pad, 0) };
         logView.Multiline = true;
         logView.ReadOnly = true;
         logView.ScrollBars = ScrollBars.Both;
+        logView.BorderStyle = BorderStyle.FixedSingle;
+        logView.Font = Ui.Mono;
         logView.WordWrap = false;
         logView.Dock = DockStyle.Fill;
-        page.Controls.Add(logView);
+        var logHostPanel = new Panel { Dock = DockStyle.Fill, Padding = new Padding(Ui.Pad, 4, Ui.Pad, Ui.Pad) };
+        logHostPanel.Controls.Add(logView);
+        page.Controls.Add(logHostPanel);
         page.Controls.Add(tools);
         Action refresh = delegate
         {
@@ -52,10 +56,12 @@ sealed partial class MemorySelectV3Form
                 logView.Text = e.Message;
             }
         };
-        var read = new Button { Text = "Yenile", Width = 110 };
+        var read = new Button { Text = "Yenile", Width = 110, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 8, 0) };
+        Fancy.Kind(read, ButtonKind.Primary);
         read.Click += delegate { refresh(); };
         tools.Controls.Add(read);
-        var export = new Button { Text = "Log dosyasını kaydet", Width = 210 };
+        var export = new Button { Text = "Log dosyasını kaydet", Width = 190, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 8, 0) };
+        Fancy.Kind(export, ButtonKind.Secondary);
         export.Click += delegate
         {
             Safe(delegate
@@ -70,7 +76,8 @@ sealed partial class MemorySelectV3Form
             });
         };
         tools.Controls.Add(export);
-        var folder = new Button { Text = "Kayıt klasörü", Width = 150 };
+        var folder = new Button { Text = "Kayıt klasörü", Width = 140, Height = Ui.ControlHeight };
+        Fancy.Kind(folder, ButtonKind.Secondary);
         folder.Click += delegate
         {
             Safe(delegate

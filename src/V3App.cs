@@ -56,26 +56,6 @@ sealed partial class MemorySelectV3Form : Form
         }
     }
 
-    void Number(NumericUpDown n, int x, int y, decimal min, decimal max, decimal value, int places)
-    {
-        n.SetBounds(x, y, 140, 29);
-        n.Minimum = min;
-        n.Maximum = max;
-        n.DecimalPlaces = places;
-        n.Value = value;
-        huntPanel.Controls.Add(n);
-        locked.Add(n);
-    }
-
-    void Check(CheckBox c, string text, int x, int y, int w, bool value)
-    {
-        c.Text = text;
-        c.SetBounds(x, y, w, 27);
-        c.Checked = value;
-        huntPanel.Controls.Add(c);
-        locked.Add(c);
-    }
-
     delegate bool ClientWindowCallback(IntPtr window, IntPtr state);
     [DllImport("user32.dll")]
     static extern bool EnumWindows(ClientWindowCallback callback, IntPtr state);

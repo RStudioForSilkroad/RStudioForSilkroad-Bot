@@ -4,6 +4,12 @@ New Era için C# / .NET Framework ile yazılmış bot. SQL veritabanı kullanmaz
 
 > **Durum:** Test sürümü. Tüm dungeonların canlı gidiş ve bitiş testi tamamlanmadı.
 
+## Arayüz
+
+Açık renkli, kartlı bir masaüstü arayüzü. Tasarım kuralları [docs/design-system.md](docs/design-system.md) dosyasındadır.
+
+![Av / Ayarlar](docs/screenshots/av-ayarlar.png)
+
 ## İndirme ve güncelleme
 
 Hazır EXE dosyası [Releases](https://github.com/RStudioForSilkroad/RStudioForSilkroad-Bot/releases/latest) sayfasındadır. `SilkroadRStudio.exe` dosyasını indirip açın.

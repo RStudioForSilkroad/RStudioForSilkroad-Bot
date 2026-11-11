@@ -10,7 +10,7 @@ using System.Windows.Forms;
 
 sealed class MapViewer : UserControl
 {
-    readonly Panel viewport = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+    readonly Panel viewport = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(232, 236, 243) };
     readonly PictureBox picture = new PictureBox { SizeMode = PictureBoxSizeMode.StretchImage };
     Image source;
     double zoom = 1;
@@ -138,7 +138,7 @@ sealed partial class MemorySelectV3Form : Form
     readonly DataGridView dungeonGrid = new DataGridView();
     readonly MapViewer explorerView = new MapViewer(), dungeonView = new MapViewer();
     readonly DungeonRadar dungeonRadar = new DungeonRadar();
-    readonly TabControl grimViews = new TabControl();
+    readonly TabControl grimViews = new FlatTabs();
     readonly DeathRecovery recovery = new DeathRecovery();
     readonly GrimRun grim = new GrimRun();
     readonly TravelWatch travel = new TravelWatch();
@@ -155,40 +155,57 @@ sealed partial class MemorySelectV3Form : Form
                 Icon = (Icon)icon.Clone();
         Text = AppPaths.AppName + " " + Application.ProductVersion;
         ClientSize = new Size(1480, 900);
-        MinimumSize = new Size(980, 700);
+        MinimumSize = new Size(1120, 700);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Color.FromArgb(246, 248, 252);
-        Font = new Font("Segoe UI", 10);
+        BackColor = Ui.Canvas;
+        Font = Ui.Body;
         AutoScaleMode = AutoScaleMode.Dpi;
-        var header = new Panel { Dock = DockStyle.Top, Height = 88, Padding = new Padding(8) };
-        var brand = new Label { Text = AppPaths.AppName, Dock = DockStyle.Right, Width = 220, TextAlign = ContentAlignment.TopRight,
-            ForeColor = Color.RoyalBlue, Font = new Font("Segoe UI", 14, FontStyle.Bold | FontStyle.Italic) };
-        header.Controls.Add(brand);
-        var connection = new FlowLayoutPanel { Location = new Point(8, 8), Size = new Size(1130, 36), WrapContents =
-            false };
+
+        // Header, row 1: connection controls. Row 2: connection state, accent colour and release notes.
+        var header = new Panel { Dock = DockStyle.Top, Height = 84 };
+        var connection = new FlowLayoutPanel { Location = new Point(264, 12), Size = new Size(1180, 36), WrapContents = false };
         processes.Width = 300;
         processes.DropDownStyle = ComboBoxStyle.DropDownList;
+        processes.Margin = new Padding(0, 3, 10, 0);
         connection.Controls.Add(processes);
-        connection.Controls.Add(Btn("Yenile", RefreshProcesses, 105));
-        connection.Controls.Add(Btn("Bağlan / Oku", Connect, 150));
-        connection.Controls.Add(Btn("Client’ı gizle", delegate { SetClientVisibility(false); }, 130, false));
-        connection.Controls.Add(Btn("Client’ı göster", delegate { SetClientVisibility(true); }, 135, false));
-        connection.Controls.Add(Btn("Yenilikler", delegate { ShowWhatsNewNow(); }, 110, false));
+        connection.Controls.Add(Btn("Yenile", RefreshProcesses, 96, true, ButtonKind.Secondary));
+        connection.Controls.Add(Btn("Bağlan / Oku", Connect, 140, true, ButtonKind.Primary));
+        connection.Controls.Add(Btn("Client’ı gizle", delegate { SetClientVisibility(false); }, 124, false, ButtonKind.Secondary));
+        connection.Controls.Add(Btn("Client’ı göster", delegate { SetClientVisibility(true); }, 130, false, ButtonKind.Secondary));
+        foreach (Control item in connection.Controls)
+            if (item is Button)
+                item.Margin = new Padding(0, 0, 8, 0);
         locked.Add(processes);
         header.Controls.Add(connection);
-        position.SetBounds(10, 46, 700, 28);
+        position.SetBounds(40, 52, 900, 24);
         position.Text = "Bağlı değil.";
+        position.TextAlign = ContentAlignment.MiddleLeft;
         header.Controls.Add(position);
-        var footer = new Panel { Dock = DockStyle.Bottom, Height = 55, Padding = new Padding(8) };
-        var start = new Button { Text = "Başlat", Location = new Point(12, 12), Size = new Size(185, 32) };
+        whatsNewButton = Btn("Yenilikler", delegate { ShowWhatsNewNow(); }, 108, false, ButtonKind.Ghost);
+        header.Controls.Add(whatsNewButton);
+
+        // Footer: the two buttons that start and stop the automation, and the current status line.
+        var footer = new Panel { Dock = DockStyle.Bottom, Height = 68 };
+        var start = new Button { Text = "Başlat", Location = new Point(16, 14), Size = new Size(172, 40) };
         start.Click += delegate { Safe(StartRequested); };
-        var stop = new Button { Text = "Durdur", Location = new Point(207, 12), Size = new Size(185, 32) };
+        Fancy.Kind(start, ButtonKind.Success);
+        var stop = new Button { Text = "Durdur", Location = new Point(198, 14), Size = new Size(140, 40) };
         stop.Click += delegate { Stop("Durduruldu."); };
-        status.Location = new Point(410, 10);
-        status.Size = new Size(730, 36);
-        status.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+        Fancy.Kind(stop, ButtonKind.Danger);
+        status.Location = new Point(358, 14);
+        status.Size = new Size(1000, 40);
+        status.TextAlign = ContentAlignment.MiddleLeft;
+        status.AutoEllipsis = true;
         footer.Controls.AddRange(new Control[] { start, stop, status });
         status.Text = "Otomasyon kapalı.";
+        footer.Paint += delegate(object sender, PaintEventArgs e)
+        {
+            using (var line = new Pen(Ui.Border))
+                e.Graphics.DrawLine(line, 0, 0, footer.Width, 0);
+        };
+        footer.Resize += delegate { status.Width = Math.Max(100, footer.ClientSize.Width - status.Left - Ui.Pad); };
+        footerPanel = footer;
+
         tabs.Dock = DockStyle.Fill;
         tabs.Appearance = TabAppearance.FlatButtons;
         tabs.SizeMode = TabSizeMode.Fixed;
@@ -203,7 +220,11 @@ sealed partial class MemorySelectV3Form : Form
         BuildHunt();
         BuildUpdateControls();
         explorerView.Dock = DockStyle.Fill;
-        explorerTab.Controls.Add(explorerView);
+        var explorerFrame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
+        explorerFrame.Controls.Add(explorerView);
+        var explorerHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(Ui.Pad, Ui.Pad, Ui.Pad, Ui.Pad) };
+        explorerHost.Controls.Add(explorerFrame);
+        explorerTab.Controls.Add(explorerHost);
         BuildGrim(cryptTab);
         activityView.Multiline = true;
         activityView.BorderStyle = BorderStyle.None;
@@ -215,18 +236,27 @@ sealed partial class MemorySelectV3Form : Form
         workspace.Controls.Add(tabs);
         workspace.Controls.Add(BuildLogHost());
         headerPanel = header;
-        Fancy.Buffer(header);
+        Ui.DoubleBuffer(header);
         header.Paint += PaintHeader;
-        aurora = new AuroraBar { Dock = DockStyle.Top, Height = 5 };
+        header.Resize += delegate
+        {
+            connection.Width = Math.Max(300, header.ClientSize.Width - connection.Left - Ui.Pad);
+            position.Width = Math.Max(200, header.ClientSize.Width - position.Left - 360);
+            header.Invalidate();
+        };
         Controls.Add(workspace);
         Controls.Add(footer);
-        Controls.Add(aurora);
         Controls.Add(header);
         explorerView.LoadResource("explorer-52.jpg");
         tabs.SelectedIndexChanged += delegate
         {
             stop.Text = tabs.SelectedIndex == 2 ? "Grim Crypt Durdur" : "Durdur";
             start.Text = tabs.SelectedIndex == 2 ? "Grim Crypt Başlat" : "Başlat";
+            stop.Width = tabs.SelectedIndex == 2 ? 190 : 140;
+            start.Width = tabs.SelectedIndex == 2 ? 200 : 172;
+            stop.Left = start.Right + 10;
+            status.Left = stop.Right + 20;
+            status.Width = Math.Max(100, footer.ClientSize.Width - status.Left - Ui.Pad);
             if (tabs.SelectedIndex == 1)
                 explorerView.Fit();
             if (tabs.SelectedIndex == 2)
@@ -252,31 +282,94 @@ sealed partial class MemorySelectV3Form : Form
         BuildLogTab();
         BuildNavigation(workspace);
         ApplyTheme();
+        header.PerformLayout();
+        PlaceHeaderRight();
     }
 
     ListBox sidebar;
+    int sidebarHover = -1;
 
+    static readonly Dictionary<string, string> navIcons = new Dictionary<string, string>
+    {
+        { "Av / Ayarlar", "" },
+        { "Explorer Yerleri", "" },
+        { "Grim Crypt", "" },
+        { "Güncelleme/Kılavuz", "" },
+        { "Çift Hesap · Deneme", "" },
+        { "Nanzhang NPC", "" },
+        { "Log", "" }
+    };
+
+    // Navigation: a white sidebar with an icon and a label per page, two captions, a tinted pill for the current page.
     void BuildNavigation(Panel workspace)
     {
-        sidebar = new ListBox { Dock = DockStyle.Left, Width = 190, IntegralHeight = false, ItemHeight = 38, DrawMode =
-            DrawMode.OwnerDrawFixed, BorderStyle = BorderStyle.None, Font = new Font("Segoe UI", 10.5f) };
+        sidebarHost = new Panel { Dock = DockStyle.Left, Width = 224, Padding = new Padding(0, 0, 1, 0), BackColor = Ui.Border };
+        sidebar = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawVariable,
+            BorderStyle = BorderStyle.None, Font = Ui.Body, BackColor = Ui.Surface };
         foreach (TabPage page in tabs.TabPages)
             sidebar.Items.Add(page);
+        Func<int, string> caption = i => i == 0 ? "ÇALIŞMA" : i == 3 ? "ARAÇLAR" : null;
+        sidebar.MeasureItem += delegate(object sender, MeasureItemEventArgs e)
+        {
+            e.ItemHeight = (caption(e.Index) == null ? 0 : 34) + 44;
+        };
         sidebar.DrawItem += delegate(object sender, DrawItemEventArgs e)
         {
             if (e.Index < 0)
                 return;
-            bool sel = (e.State & DrawItemState.Selected) != 0;
-            using (var back = new SolidBrush(sel ? Color.FromArgb(40, accentColor) : sidebar.BackColor))
-                e.Graphics.FillRectangle(back, e.Bounds);
-            if (sel)
-                using (var bar = new SolidBrush(accentColor))
-                    e.Graphics.FillRectangle(bar, e.Bounds.X, e.Bounds.Y, 4, e.Bounds.Height);
-            var page = (TabPage)sidebar.Items[e.Index];
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var back = new SolidBrush(Ui.Surface))
+                g.FillRectangle(back, e.Bounds);
             var bounds = e.Bounds;
-            bounds.X += 16;
-            bounds.Width -= 16;
-            TextRenderer.DrawText(e.Graphics, page.Text, sidebar.Font, bounds, sidebar.ForeColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+            string title = caption(e.Index);
+            if (title != null)
+            {
+                TextRenderer.DrawText(g, title, Ui.Small, new Rectangle(bounds.X + 22, bounds.Y + 8, bounds.Width - 30, 22), Ui.TextMuted,
+                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+                bounds.Y += 34;
+                bounds.Height -= 34;
+            }
+            bool selected = (e.State & DrawItemState.Selected) != 0, hover = e.Index == sidebarHover;
+            var pill = new Rectangle(bounds.X + 10, bounds.Y + 2, bounds.Width - 21, bounds.Height - 4);
+            if (selected || hover)
+                using (var path = Ui.RoundRect(pill, 6))
+                    using (var fill = new SolidBrush(selected ? Ui.AccentTint : Ui.SurfaceAlt))
+                        g.FillPath(fill, path);
+            if (selected)
+                using (var bar = new SolidBrush(Ui.Accent))
+                    g.FillRectangle(bar, pill.X, pill.Y + 8, 3, pill.Height - 16);
+            var page = (TabPage)sidebar.Items[e.Index];
+            Color ink = selected ? Ui.Accent : Ui.TextSecondary;
+            int textLeft = pill.X + 16;
+            string glyph;
+            if (Ui.IconsAvailable && navIcons.TryGetValue(page.Text, out glyph))
+            {
+                TextRenderer.DrawText(g, glyph, Ui.IconFont, new Rectangle(pill.X + 12, pill.Y, 28, pill.Height), ink,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+                textLeft = pill.X + 46;
+            }
+            TextRenderer.DrawText(g, page.Text, selected ? Ui.BodyBold : Ui.Body, new Rectangle(textLeft, pill.Y, pill.Right - textLeft - 6,
+                pill.Height), selected ? Ui.Accent : Ui.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
+                TextFormatFlags.NoPrefix);
+            if ((e.State & DrawItemState.Focus) != 0 && sidebar.Focused)
+                using (var ring = new Pen(Ui.Accent, 2f))
+                    using (var path = Ui.RoundRect(pill, 6))
+                        g.DrawPath(ring, path);
+        };
+        sidebar.MouseMove += delegate(object sender, MouseEventArgs e)
+        {
+            int index = sidebar.IndexFromPoint(e.Location);
+            if (index != sidebarHover)
+            {
+                sidebarHover = index;
+                sidebar.Invalidate();
+            }
+        };
+        sidebar.MouseLeave += delegate
+        {
+            sidebarHover = -1;
+            sidebar.Invalidate();
         };
         sidebar.SelectedIndex = tabs.SelectedIndex;
         sidebar.SelectedIndexChanged += delegate
@@ -290,7 +383,8 @@ sealed partial class MemorySelectV3Form : Form
             if (tabs.SelectedTab != null)
                 sidebar.SelectedItem = tabs.SelectedTab;
         };
-        workspace.Controls.Add(sidebar);
+        sidebarHost.Controls.Add(sidebar);
+        workspace.Controls.Add(sidebarHost);
         sidebar.SelectedIndex = Math.Max(0, tabs.SelectedIndex);
     }
 
@@ -307,22 +401,31 @@ sealed partial class MemorySelectV3Form : Form
         }
     }
 
+    // A label that is as wide as its text, with the text centred on the height of a normal control.
     static Label LabelOf(string text, int width)
     {
-        return new Label { Text = text, Width = width, Height = 29, TextAlign = ContentAlignment.MiddleLeft };
+        return new Label { Text = text, Width = width, Height = 30, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 1, 6, 1) };
     }
 
-    FlowLayoutPanel Row(int y, int height = 40)
+    static Label Caption(string text)
     {
-        var row = new FlowLayoutPanel { Location = new Point(14, y), Size = new Size(1040, height), WrapContents = false };
-        huntPanel.Controls.Add(row);
-        return row;
+        int w = TextRenderer.MeasureText(text, Ui.Body).Width + 10;
+        return LabelOf(text, w);
     }
 
-    Button Btn(string text, Action action, int width = 130, bool freeze = true)
+    static Label Hint(string text, int width = 0)
     {
-        var b = new Button { Text = text, Width = width, Height = 32 };
+        var label = new Label { Text = text, AutoSize = false, Height = 22, TextAlign = ContentAlignment.MiddleLeft, Tag = "muted", Margin = new Padding(0, 0, 0, 4) };
+        if (width > 0)
+            label.Width = width;
+        return label;
+    }
+
+    Button Btn(string text, Action action, int width = 130, bool freeze = true, ButtonKind kind = ButtonKind.Secondary)
+    {
+        var b = new Button { Text = text, Width = width, Height = Ui.ControlHeight, Margin = new Padding(0, 0, 8, 6) };
         b.Click += delegate { Safe(action); };
+        Fancy.Kind(b, kind);
         if (freeze)
             locked.Add(b);
         return b;
@@ -336,6 +439,7 @@ sealed partial class MemorySelectV3Form : Form
         n.DecimalPlaces = places;
         n.Width = width;
         n.Height = 29;
+        n.Margin = new Padding(0, 5, 12, 1);
         n.ThousandsSeparator = false;
         locked.Add(n);
     }
@@ -344,156 +448,271 @@ sealed partial class MemorySelectV3Form : Form
     {
         c.Text = text;
         c.Checked = value;
-        c.Width = width;
-        c.Height = 29;
+        c.AutoSize = true;
+        c.MinimumSize = new Size(0, 30);
+        c.Margin = new Padding(0, 1, 16, 1);
         locked.Add(c);
     }
 
-    FlowLayoutPanel huntRoot;
-
-    FlowLayoutPanel Card(string title)
+    // A single card at the top of a page, used by the settings-like pages; returns the area to put the content in.
+    FlowLayoutPanel PageCard(TabPage page, string title, int width)
     {
-        var g = new GroupBox { Text = title, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(14,
-            8, 14, 12), Margin = new Padding(0, 0, 0, 14), MinimumSize = new Size(1080, 0) };
+        var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        var card = new CardBox(title) { MinimumSize = new Size(width, 0), Margin = new Padding(0), Location = new Point(Ui.Pad, Ui.Pad) };
+        var content = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0) };
+        card.Controls.Add(content);
+        scroller.Controls.Add(card);
+        page.Controls.Add(scroller);
+        return content;
+    }
+
+    // ---- Hunt page: cards in two columns when there is room, one column otherwise ----
+
+    FlowLayoutPanel huntRoot, leftColumn, rightColumn;
+    TableLayoutPanel huntColumns;
+    CardBox liveCard;
+    readonly List<CardBox> leftCards = new List<CardBox>(), rightCards = new List<CardBox>();
+    readonly List<FlowLayoutPanel> huntRows = new List<FlowLayoutPanel>();
+    readonly List<Control> huntStretch = new List<Control>();
+
+    // column: 0 = left, 1 = right, 2 = full width below both columns
+    FlowLayoutPanel Card(string title, int column = 0)
+    {
+        var g = new CardBox(title);
         var f = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
-            FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top };
+            FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0) };
         g.Controls.Add(f);
-        huntRoot.Controls.Add(g);
+        if (column == 2)
+            liveCard = g;
+        else
+            (column == 0 ? leftCards : rightCards).Add(g);
         return f;
     }
 
     FlowLayoutPanel Line(FlowLayoutPanel card)
     {
-        var r = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false,
+        var r = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true,
             Margin = new Padding(0, 2, 0, 2) };
         card.Controls.Add(r);
+        huntRows.Add(r);
         return r;
+    }
+
+    // Controls that should always be as wide as the card's inner area.
+    T Stretch<T>(T control) where T : Control
+    {
+        control.Margin = new Padding(0, 0, 0, 6);
+        huntStretch.Add(control);
+        return control;
+    }
+
+    void ArrangeHunt()
+    {
+        if (huntRoot == null)
+            return;
+        // Before the window has been laid out the panel has no width yet; assume the default window size.
+        int panelWidth = huntPanel.ClientSize.Width < 200 ? 1240 : huntPanel.ClientSize.Width;
+        int usable = Math.Max(520, panelWidth - huntRoot.Padding.Horizontal);
+        bool two = usable >= 1060;
+        int gap = Ui.Pad;
+        int cardWidth = two ? (usable - gap) / 2 : usable;
+        huntRoot.SuspendLayout();
+        huntColumns.SuspendLayout();
+        var all = leftCards.Concat(rightCards).ToList();
+        foreach (var card in all)
+            card.Parent = null;
+        var primary = two ? leftCards : all;
+        foreach (var card in primary)
+            leftColumn.Controls.Add(card);
+        if (two)
+            foreach (var card in rightCards)
+                rightColumn.Controls.Add(card);
+        huntColumns.ColumnStyles[0].SizeType = SizeType.Absolute;
+        huntColumns.ColumnStyles[0].Width = cardWidth;
+        huntColumns.ColumnStyles[1].SizeType = SizeType.Absolute;
+        huntColumns.ColumnStyles[1].Width = two ? cardWidth + gap : 0;
+        rightColumn.Visible = two;
+        rightColumn.Margin = new Padding(gap, 0, 0, 0);
+        foreach (var card in all)
+            card.MinimumSize = new Size(cardWidth, 0);
+        if (liveCard != null)
+            liveCard.MinimumSize = new Size(usable, 0);
+        int inner = cardWidth - 2 * Ui.Pad - 2, liveInner = usable - 2 * Ui.Pad - 2;
+        foreach (var row in huntRows)
+        {
+            var host = row.Parent == null ? null : row.Parent.Parent as CardBox;
+            row.MaximumSize = new Size(host == liveCard ? liveInner : inner, 0);
+        }
+        foreach (var control in huntStretch)
+        {
+            var host = control.Parent == null || control.Parent.Parent == null ? null : control.Parent.Parent.Parent as CardBox;
+            control.Width = host == liveCard ? liveInner : inner;
+        }
+        huntColumns.ResumeLayout(true);
+        huntRoot.ResumeLayout(true);
     }
 
     void BuildHunt()
     {
         huntRoot = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(14, 12, 14, 12) };
+            FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(Ui.Pad) };
         huntPanel.Controls.Add(huntRoot);
+        huntColumns = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, RowCount = 1,
+            Margin = new Padding(0) };
+        huntColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 600));
+        huntColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 600));
+        huntColumns.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        leftColumn = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
+            FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0), Dock = DockStyle.Top };
+        rightColumn = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
+            FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0), Dock = DockStyle.Top };
+        huntColumns.Controls.Add(leftColumn, 0, 0);
+        huntColumns.Controls.Add(rightColumn, 1, 0);
+        huntRoot.Controls.Add(huntColumns);
+
+        // Left column: what to hunt and where
         BuildStatCard();
-        var card = Card("Kontrol");
+        var card = Card("Hedefler");
         var row = Line(card);
-        row.Controls.Add(LabelOf("Başlat / Durdur", 155));
-        shortcutLabel.Width = 300;
-        shortcutLabel.Height = 29;
-        shortcutLabel.Text = "Atanmadı";
-        row.Controls.Add(shortcutLabel);
-        row.Controls.Add(Btn("Tuş ata / değiştir", ChooseHotkey, 200));
-        card = Card("Hedefler");
-        row = Line(card);
-        row.Controls.Add(LabelOf("Yaratık", 80));
-        monsters.Width = 420;
+        row.Controls.Add(Caption("Yaratık"));
+        monsters.Width = 250;
         monsters.DropDownStyle = ComboBoxStyle.DropDownList;
         monsters.AutoCompleteSource = AutoCompleteSource.ListItems;
         monsters.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+        monsters.Margin = new Padding(0, 4, 8, 0);
         monsters.Items.AddRange(names.Values.Distinct().OrderBy(n => n).Cast<object>().ToArray());
         row.Controls.Add(monsters);
         locked.Add(monsters);
-        row.Controls.Add(Btn("+ Ekle", AddMob, 105));
-        row.Controls.Add(Btn("− Çıkar", RemoveMob, 105));
-        row.Controls.Add(Btn("Yakındaki isimler", Nearby, 165));
+        row.Controls.Add(Btn("+ Ekle", AddMob, 84, true, ButtonKind.Primary));
+        row.Controls.Add(Btn("− Çıkar", RemoveMob, 84));
+        row.Controls.Add(Btn("Yakındaki isimler", Nearby, 150));
         row = Line(card);
-        row.Controls.Add(LabelOf("Hedef listesi", 100));
-        mobList.Width = 750;
-        mobList.Height = 96;
-        row.Controls.Add(mobList);
+        row.Controls.Add(Stretch(Hint("Hedef listesi · saldırılacak yaratıklar")));
+        row = Line(card);
+        mobList.Height = 112;
+        mobList.BorderStyle = BorderStyle.FixedSingle;
+        mobList.IntegralHeight = false;
+        row.Controls.Add(Stretch(mobList));
         locked.Add(mobList);
         card = Card("Av bölgesi");
         row = Line(card);
-        Num(xBox, -25000, 23000, 0, 1, 120);
-        Num(yBox, -17000, 6500, 0, 1, 120);
-        row.Controls.Add(LabelOf("Bölge X", 75));
+        Num(xBox, -25000, 23000, 0, 1, 112);
+        Num(yBox, -17000, 6500, 0, 1, 112);
+        row.Controls.Add(Caption("X"));
         row.Controls.Add(xBox);
-        row.Controls.Add(LabelOf("Y", 25));
+        row.Controls.Add(Caption("Y"));
         row.Controls.Add(yBox);
-        row.Controls.Add(Btn("Mevcut X/Y", FillCurrent, 155));
-        row.Controls.Add(Btn("Bölgeyi set et", SetCenter, 175));
         row = Line(card);
-        area.Width = 1020;
-        area.Height = 30;
+        row.Controls.Add(Btn("Mevcut X/Y", FillCurrent, 116));
+        row.Controls.Add(Btn("Bölgeyi set et", SetCenter, 132, true, ButtonKind.Primary));
+        row = Line(card);
+        area.Height = 40;
+        area.AutoSize = false;
+        area.TextAlign = ContentAlignment.MiddleLeft;
+        area.Tag = "muted";
         area.Text = "Bölge set edilmedi. Mob eklemek merkezi değiştirmez.";
-        row.Controls.Add(area);
+        row.Controls.Add(Stretch(area));
         row = Line(card);
         Num(radius, 1, 500, 150);
         Num(timeout, 5, 120, 10);
-        row.Controls.Add(LabelOf("Range", 75));
+        row.Controls.Add(Caption("Range"));
         row.Controls.Add(radius);
-        row.Controls.Add(LabelOf("Takılma (sn)", 125));
+        row.Controls.Add(Caption("Takılma (sn)"));
         row.Controls.Add(timeout);
-        row.Controls.Add(LabelOf("Saldırılamayan hedef 10 sn sonra atlanır.", 420));
+        row = Line(card);
+        row.Controls.Add(Stretch(Hint("Saldırılamayan hedef 10 sn sonra atlanır.")));
         card = Card("Saldırı");
         row = Line(card);
-        keys.Width = 360;
+        keys.Width = 220;
         keys.Text = "1 2 3 4 5 6";
-        row.Controls.Add(LabelOf("Tuşlar", 75));
+        keys.Margin = new Padding(0, 3, 12, 0);
+        row.Controls.Add(Caption("Tuşlar"));
         row.Controls.Add(keys);
         locked.Add(keys);
         Num(delay, 60, 10000, 100);
-        row.Controls.Add(LabelOf("Tuş aralığı (ms)", 155));
+        row.Controls.Add(Caption("Tuş aralığı (ms)"));
         row.Controls.Add(delay);
         row = Line(card);
-        ConfigureCheck(sendKeys, "Hedef doğrulanınca tuşlara bas", false, 410);
-        ConfigureCheck(goHome, "Hedef yoksa / alan dışındaysa merkeze dön", true, 570);
+        ConfigureCheck(sendKeys, "Hedef doğrulanınca tuşlara bas", false, 0);
         row.Controls.Add(sendKeys);
-        row.Controls.Add(goHome);
-        card = Card("Otomatik bakım");
         row = Line(card);
-        ConfigureCheck(autoZerk, "Berserk 5/5 → Tab", true, 215);
-        berserkClass.Width = 175;
+        ConfigureCheck(goHome, "Hedef yoksa / alan dışındaysa merkeze dön", true, 0);
+        row.Controls.Add(goHome);
+
+        // Right column: control, maintenance, travel
+        card = Card("Kontrol", 1);
+        row = Line(card);
+        row.Controls.Add(Caption("Başlat / Durdur kısayolu"));
+        shortcutLabel.AutoSize = false;
+        shortcutLabel.Size = new Size(120, 30);
+        shortcutLabel.TextAlign = ContentAlignment.MiddleCenter;
+        shortcutLabel.BorderStyle = BorderStyle.FixedSingle;
+        shortcutLabel.Text = "Atanmadı";
+        shortcutLabel.Margin = new Padding(0, 1, 10, 1);
+        row.Controls.Add(shortcutLabel);
+        row.Controls.Add(Btn("Tuş ata / değiştir", ChooseHotkey, 160));
+        card = Card("Otomatik bakım", 1);
+        row = Line(card);
+        ConfigureCheck(autoZerk, "Berserk 5/5 → Tab", true, 0);
+        berserkClass.Width = 170;
         berserkClass.DropDownStyle = ComboBoxStyle.DropDownList;
         berserkClass.Items.AddRange(V2Rules.BerserkClasses);
         berserkClass.SelectedItem = "Giant";
+        berserkClass.Margin = new Padding(0, 4, 0, 1);
         locked.Add(berserkClass);
         row.Controls.Add(autoZerk);
         row.Controls.Add(berserkClass);
-        ConfigureCheck(autoSpeed, "Hızlı Koşma Taşı Kullan %100", true, 540);
+        row = Line(card);
+        ConfigureCheck(autoSpeed, "Hızlı Koşma Taşı Kullan %100", true, 0);
         row.Controls.Add(autoSpeed);
         row = Line(card);
-        ConfigureCheck(autoRepair, "Ekipman dayanıklılığı ≤ 4 → Repair", true, 410);
+        ConfigureCheck(autoRepair, "Ekipman dayanıklılığı ≤ 4 → Repair", true, 0);
         row.Controls.Add(autoRepair);
+        row = Line(card);
         row.Controls.Add(Btn("Bakım hata kilidini sıfırla", delegate
         {
             transaction.Reset();
             maintenance.Text = transaction.Message;
-        }, 290));
+        }, 220));
         row = Line(card);
-        ConfigureCheck(autoRecovery, "Ölümde şehre dön + Reverse", true, 320);
+        ConfigureCheck(autoRecovery, "Ölümde şehre dön + Reverse", true, 0);
+        row.Controls.Add(autoRecovery);
+        row = Line(card);
         Num(reviveSeconds, 0, 3600, 30);
         Num(deathLimit, 1, 1000, 5);
-        row.Controls.Add(autoRecovery);
-        row.Controls.Add(LabelOf("Bekle (sn)", 100));
+        row.Controls.Add(Caption("Bekle (sn)"));
         row.Controls.Add(reviveSeconds);
-        row.Controls.Add(LabelOf("Ölüm sınırı", 110));
+        row.Controls.Add(Caption("Ölüm sınırı"));
         row.Controls.Add(deathLimit);
         row = Line(card);
-        deathsLabel.Width = 410;
-        deathsLabel.Height = 29;
+        deathsLabel.AutoSize = false;
+        deathsLabel.Size = new Size(230, 30);
+        deathsLabel.TextAlign = ContentAlignment.MiddleLeft;
+        deathsLabel.Margin = new Padding(0, 0, 8, 6);
         row.Controls.Add(deathsLabel);
         row.Controls.Add(Btn("Ölüm sayacını sıfırla", delegate
         {
             recovery.ResetCount();
             SaveSettings();
             UpdateDisplay();
-        }, 240));
-        card = Card("Yolculuk");
+        }, 190));
+        card = Card("Yolculuk", 1);
         row = Line(card);
-        ConfigureCheck(travelMount, "Dungeon’a giderken ata bin · Oyundaki aktif mount", false, 650);
+        ConfigureCheck(travelMount, "Dungeon’a giderken ata bin · Oyundaki aktif mount", false, 0);
         row.Controls.Add(travelMount);
         row = Line(card);
-        ConfigureCheck(returnBeforeTravel, "Farklı bölgeye giderken önce Return Scroll kullan · İsteğe bağlı", false,
-            850);
+        ConfigureCheck(returnBeforeTravel, "Farklı bölgeye giderken önce Return Scroll kullan · İsteğe bağlı", false, 0);
         row.Controls.Add(returnBeforeTravel);
-        card = Card("Canlı durum");
+
+        // Full width: live view of the monsters in range
+        card = Card("Canlı durum", 2);
         row = Line(card);
-        details.Width = 1020;
-        details.Height = 32;
-        row.Controls.Add(details);
-        grid.Size = new Size(1030, 205);
+        details.AutoSize = false;
+        details.Height = 30;
+        details.TextAlign = ContentAlignment.MiddleLeft;
+        row.Controls.Add(Stretch(details));
+        grid.Height = 210;
         grid.ReadOnly = true;
         grid.AllowUserToAddRows = false;
         grid.AllowUserToDeleteRows = false;
@@ -503,11 +722,22 @@ sealed partial class MemorySelectV3Form : Form
         foreach (string text in new[] { "UID", "Yaratık", "Sınıf", "X", "Y", "Merkeze mesafe", "HP", "Durum" })
             grid.Columns.Add(text, text);
         row = Line(card);
-        row.Controls.Add(grid);
-        maintenance.Size = new Size(1030, 55);
+        row.Controls.Add(Stretch(grid));
+        maintenance.AutoSize = false;
+        maintenance.Height = 32;
+        maintenance.TextAlign = ContentAlignment.MiddleLeft;
+        maintenance.Tag = "muted";
         maintenance.Text = transaction.Message;
         row = Line(card);
-        row.Controls.Add(maintenance);
+        row.Controls.Add(Stretch(maintenance));
+        huntRoot.Controls.Add(liveCard);
+        huntPanel.SizeChanged += delegate { ArrangeHunt(); };
+        huntPanel.MouseEnter += delegate
+        {
+            if (!(ActiveControl is TextBoxBase) && !(ActiveControl is NumericUpDown) && !(ActiveControl is ComboBox))
+                huntPanel.Focus();
+        };
+        ArrangeHunt();
     }
 
     void AddMob()
@@ -627,26 +857,33 @@ sealed partial class MemorySelectV3Form : Form
     void BuildGrim(TabPage outerPage)
     {
         var page = outerPage;
-        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 88, Padding = new Padding(8) };
+        page.AutoScroll = true;
+        page.AutoScrollMinSize = new Size(960, 560);
+        var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(Ui.Pad, 10, Ui.Pad, 4) };
         foreach (string modeName in new[] { "Novice", "Expert", "Master", "Solo Trial" })
         {
             var check = new CheckBox { Text = modeName, AutoSize = true, Checked = modeName == "Solo Trial", Margin =
-                new Padding(8) };
+                new Padding(0, 6, 18, 6) };
             grimModes.Add(check);
             check.CheckedChanged += delegate { RefreshDungeonGrid(); };
             toolbar.Controls.Add(check);
         }
-        toolbar.Controls.Add(Btn("Girişe yürü", WalkDungeon, 150));
+        toolbar.Controls.Add(Btn("Girişe yürü", WalkDungeon, 140, true, ButtonKind.Primary));
         autoEnterGrim.Text = "Girişe varınca Solo Trial’a gir ve otomatik avlan";
         autoEnterGrim.AutoSize = true;
+        autoEnterGrim.Margin = new Padding(8, 6, 18, 6);
         locked.Add(autoEnterGrim);
         toolbar.Controls.Add(autoEnterGrim);
-        toolbar.Controls.Add(Btn("Grim Crypt Durdur", delegate { Stop("Dungeon işlemi durduruldu."); }, 235, false));
-        toolbar.Controls.Add(new Label { Text =
+        toolbar.Controls.Add(Btn("Grim Crypt Durdur", delegate { Stop("Dungeon işlemi durduruldu."); }, 190, false, ButtonKind.Danger));
+        var grimNote = new Label { Text =
             "72 kayıt / 18 giriş · Mob bitince kontrol edilmemiş odalara ilerler · 72/72 canlı bitiriş testi henüz yapılmadı.",
-            Width = 1040, Height = 27, ForeColor = Color.DarkGoldenrod });
-        var split = new SplitContainer { Size = new Size(1040, 660), Dock = DockStyle.Fill, Orientation = Orientation.Vertical,
-            FixedPanel = FixedPanel.Panel1, SplitterDistance = 510 };
+            AutoSize = false, Width = 900, Height = 24, Tag = "warn", Margin = new Padding(0, 4, 0, 0) };
+        toolbar.Controls.Add(grimNote);
+        toolbar.SizeChanged += delegate { grimNote.Width = Math.Max(300, toolbar.ClientSize.Width - 2 * Ui.Pad); };
+        var split = new SplitContainer { Size = new Size(1200, 660), Dock = DockStyle.Fill, Orientation = Orientation.Vertical,
+            FixedPanel = FixedPanel.Panel1, SplitterDistance = 540, SplitterWidth = 1 };
+        split.Panel1.Padding = new Padding(Ui.Pad, 0, 8, Ui.Pad);
+        split.Panel2.Padding = new Padding(8, 0, Ui.Pad, Ui.Pad);
         dungeonGrid.Dock = DockStyle.Fill;
         dungeonGrid.ReadOnly = false;
         dungeonGrid.AllowUserToAddRows = false;
@@ -681,7 +918,7 @@ sealed partial class MemorySelectV3Form : Form
                 visitedDungeons.Add(id);
             else
                 visitedDungeons.Remove(id);
-            row.DefaultCellStyle.BackColor = visitedDungeons.Contains(id) ? Color.DarkOliveGreen : dungeonGrid.DefaultCellStyle.BackColor;
+            row.DefaultCellStyle.BackColor = visitedDungeons.Contains(id) ? Ui.SuccessTint : dungeonGrid.DefaultCellStyle.BackColor;
             SaveSettings();
         };
         dungeonGrid.SelectionChanged += delegate
@@ -692,9 +929,14 @@ sealed partial class MemorySelectV3Form : Form
                 ShowDungeonImage(d);
             }
         };
-        split.Panel1.Controls.Add(dungeonGrid);
+        var gridHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
+        gridHost.Controls.Add(dungeonGrid);
+        split.Panel1.Controls.Add(gridHost);
         BuildQueuePanel(split.Panel1);
         grimViews.Dock = DockStyle.Fill;
+        grimViews.Appearance = TabAppearance.FlatButtons;
+        grimViews.SizeMode = TabSizeMode.Fixed;
+        grimViews.ItemSize = new Size(1, 1);
         var visual = new TabPage("Dungeon görseli");
         dungeonView.Dock = DockStyle.Fill;
         visual.Controls.Add(dungeonView);
@@ -706,10 +948,14 @@ sealed partial class MemorySelectV3Form : Form
             if (grimViews.SelectedIndex == 0)
                 dungeonView.Fit();
         };
-        split.Panel2.Controls.Add(grimViews);
+        var mapHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
+        mapHost.Controls.Add(grimViews);
+        mapHost.Controls.Add(new TabStrip(grimViews));
+        split.Panel2.Controls.Add(mapHost);
         grimStatus.Dock = DockStyle.Bottom;
-        grimStatus.Height = 62;
-        grimStatus.Padding = new Padding(10);
+        grimStatus.Height = 44;
+        grimStatus.Padding = new Padding(Ui.Pad, 10, Ui.Pad, 10);
+        grimStatus.Tag = "muted";
         grimStatus.Text = "Dungeon seç. Otomatik giriş kutusu açıksa Solo Trial’a girer; kapalıysa girişte bekler.";
         page.Controls.Add(split);
         page.Controls.Add(grimStatus);
@@ -732,7 +978,7 @@ sealed partial class MemorySelectV3Form : Form
                     d.InstanceId, d.Mode == "Solo Trial" ? "Kayıtlı harita · alan kontrolü" :
                     "Canlı tarama · alan kontrolü");
                 dungeonGrid.Rows[r].Tag = d;
-                dungeonGrid.Rows[r].DefaultCellStyle.BackColor = visited ? Color.DarkOliveGreen : dungeonGrid.DefaultCellStyle.BackColor;
+                dungeonGrid.Rows[r].DefaultCellStyle.BackColor = visited ? Ui.SuccessTint : dungeonGrid.DefaultCellStyle.BackColor;
             }
         }
         finally
