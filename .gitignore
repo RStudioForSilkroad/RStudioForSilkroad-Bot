@@ -20,3 +20,8 @@ NewEraKeys/
 *.snk
 settings.json
 events.log
+
+# Agent skills installed locally
+.agents/
+.claude/
+skills-lock.json
