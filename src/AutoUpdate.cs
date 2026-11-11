@@ -35,7 +35,17 @@ sealed class StagedUpdate
 static class UpdateTrust
 {
     internal const string Product = "Rikimaru.NewEra.MemorySelect";
+    internal const string DefaultManifestUrl = "https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest/download/manifest.json";
+    // Releases of the original author were signed with a different key; settings that still point there are migrated.
+    internal const string LegacyManifestUrl = "https://github.com/by-rikimaru/NewEra/releases/latest/download/manifest.json";
     internal const long MaxExeSize = 150 * 1024 * 1024;
+
+    internal static string EmbeddedPublicKey()
+    {
+        using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("updates-public-key.xml"))
+            using (var r = new StreamReader(s, Encoding.UTF8))
+                return r.ReadToEnd();
+    }
 
     internal static Version CurrentVersion
     {
@@ -50,6 +60,11 @@ static class UpdateTrust
 
     internal static void Validate(UpdateManifest m)
     {
+        Validate(m, EmbeddedPublicKey());
+    }
+
+    internal static void Validate(UpdateManifest m, string publicKeyXml)
+    {
         Version ver;
         Uri url;
         if (m == null || m.Product != Product || !Version.TryParse(m.Version, out ver) || m.Version.Length > 32 || m.Size < 1024 ||
@@ -59,9 +74,7 @@ static class UpdateTrust
             throw new InvalidDataException("Geçersiz güncelleme bildirimi.");
         using (var rsa = new RSACryptoServiceProvider())
         {
-            using (var s = Assembly.GetExecutingAssembly().GetManifestResourceStream("updates-public-key.xml"))
-                using (var r = new StreamReader(s, Encoding.UTF8))
-                    rsa.FromXmlString(r.ReadToEnd());
+            rsa.FromXmlString(publicKeyXml);
             byte[] signature;
             try
             {
@@ -378,7 +391,7 @@ sealed partial class MemorySelectV3Form : Form
     {
         autoUpdate.Checked = settings.AutoUpdate;
         updateUrl.Text = string.IsNullOrWhiteSpace(settings.UpdateManifestUrl) ?
-            "https://github.com/by-rikimaru/NewEra/releases/latest/download/manifest.json" : settings.UpdateManifestUrl;
+            UpdateTrust.DefaultManifestUrl : settings.UpdateManifestUrl;
         updateStatus.Text = string.IsNullOrWhiteSpace(updateUrl.Text) ?
             "Yayın adresi henüz hazırlanmadı; otomatik indirme yapılmaz." : "Güncelleme kontrolü hazır.";
     }

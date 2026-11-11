@@ -431,7 +431,7 @@ sealed class V3Settings
     public int Theme;
     public List<string> VisitedDungeons = new List<string>();
     public bool AutoUpdate = true;
-    public string UpdateManifestUrl = "https://github.com/by-rikimaru/NewEra/releases/latest/download/manifest.json";
+    public string UpdateManifestUrl = UpdateTrust.DefaultManifestUrl;
     public int HotkeyKey, HotkeyModifiers;
     public List<string> Mobs = new List<string>();
     public double X, Y, Range = 150;
@@ -460,7 +460,10 @@ sealed class V3Settings
             return new V3Settings();
         try
         {
-            return new JavaScriptSerializer().Deserialize<V3Settings>(File.ReadAllText(PathName, Encoding.UTF8)) ?? new V3Settings();
+            var loaded = new JavaScriptSerializer().Deserialize<V3Settings>(File.ReadAllText(PathName, Encoding.UTF8)) ?? new V3Settings();
+            if (string.Equals(loaded.UpdateManifestUrl, UpdateTrust.LegacyManifestUrl, StringComparison.OrdinalIgnoreCase))
+                loaded.UpdateManifestUrl = UpdateTrust.DefaultManifestUrl;
+            return loaded;
         }
         catch
         {

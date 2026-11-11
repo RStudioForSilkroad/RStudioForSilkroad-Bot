@@ -6,7 +6,7 @@ New Era için C# / .NET Framework ile yazılmış bot. SQL veritabanı kullanmaz
 
 ## İndirme ve güncelleme
 
-Hazır EXE dosyası [Releases](https://github.com/by-rikimaru/NewEra/releases/latest) sayfasındadır. `NewEra-MemorySelect.exe` dosyasını indirip açın.
+Hazır EXE dosyası [Releases](https://github.com/gabbybilisim-cloud/NewEra-Client/releases/latest) sayfasındadır. `NewEra-MemorySelect.exe` dosyasını indirip açın.
 
 Program yeni sürümleri kendisi kontrol eder, indirir, imzasını doğrular ve kendini günceller. Güncelleme adresi varsayılan olarak ayarlıdır; "Güncelleme/Kılavuz" sekmesinden değiştirilebilir.
 
@@ -43,15 +43,15 @@ Betik kontrol programını derleyip çalıştırır. Sonuç `tests\Test-Sonucu.t
 
 ## Yeni sürüm yayınlama
 
-1. **Bir kez:** `.\tools\1-anahtar-uret.ps1` ile kendi imza anahtarınızı üretin. Özel anahtar kullanıcı klasörünüzde `NewEraKeys` içinde kalır. Depoya asla koymayın.
+1. **Bir kez (yapıldı):** `.\tools\1-anahtar-uret.ps1` imza anahtarını üretir. Özel anahtar `%USERPROFILE%\NewEraKeys\updates-private-key.xml` içinde kalır; **yedekleyin ve depoya asla koymayın**. Kaybedilirse mevcut kullanıcılara güncelleme gönderilemez. Betik anahtar zaten varsa üzerine yazmaz.
 2. **Her sürümde:**
    ```powershell
-   .\tools\2-yayin-hazirla.ps1 -Version 3.4.3.0 -Repo kullanici/depo
+   .\tools\2-yayin-hazirla.ps1 -Version 3.4.7.0 -Repo gabbybilisim-cloud/NewEra-Client
    ```
    Betik sürüm numarasını ayarlar, derler, imzalar ve `release\` klasörüne `NewEra-MemorySelect.exe` ile `manifest.json` dosyalarını koyar.
-3. GitHub'da `v3.4.3.0` gibi bir etiketle yeni Release oluşturup bu iki dosyayı yükleyin.
+3. GitHub'da `v3.4.7.0` gibi bir etiketle yeni Release oluşturup bu iki dosyayı yükleyin.
 
-Güncellemeler RSA imzasıyla doğrulanır. Doğrulama genel anahtarı `data\updates-public-key.xml` dosyasındadır; kendi sürümlerinizi yayınlamak için bu dosyayı kendi anahtarınızla değiştirip yeniden derleyin.
+Güncellemeler RSA imzasıyla doğrulanır. Doğrulama genel anahtarı `data\updates-public-key.xml` dosyasındadır ve programa gömülür. Varsayılan güncelleme adresi `UpdateTrust.DefaultManifestUrl` sabitindedir ([src/AutoUpdate.cs](src/AutoUpdate.cs)). Eski yazarın (`by-rikimaru`) sürümleri başka anahtarla imzalıdır; bu programda reddedilir ve eski adrese işaret eden kayıtlı ayarlar açılışta yeni adrese taşınır.
 
 ## phBot rota eklentisi
 

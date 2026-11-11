@@ -17,7 +17,7 @@ $ai=Join-Path $root 'src\AssemblyInfo.cs'
 $text=[IO.File]::ReadAllText($ai)
 $text=[regex]::Replace($text,'AssemblyVersion\("[^"]+"\)',"AssemblyVersion(`"$Version`")")
 $text=[regex]::Replace($text,'AssemblyFileVersion\("[^"]+"\)',"AssemblyFileVersion(`"$Version`")")
-[IO.File]::WriteAllText($ai,$text,(New-Object Text.UTF8Encoding($false)))
+[IO.File]::WriteAllText($ai,$text,(New-Object Text.UTF8Encoding($true)))
 # derleme
 $rel=Join-Path $root 'release'; New-Item -ItemType Directory -Force $rel | Out-Null
 $exe=Join-Path $rel 'NewEra-MemorySelect.exe'

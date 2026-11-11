@@ -4,6 +4,7 @@ using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Windows.Forms;
 
 class V3Checks
@@ -518,18 +519,37 @@ class V3Checks
         var saved = codec.Deserialize<V3Settings>(codec.Serialize(cfg));
         A(saved.Keys == "1 2" && saved.Deaths == 3 && saved.HotkeyKey == (int)Keys.Insert && saved.VisitedDungeons.SequenceEqual(new[] { "D06|Novice" }),
             "Common settings, death counter and custom key persist");
-        var manifest = codec.Deserialize<UpdateManifest>(File.ReadAllText("tests/update-test-manifest.json"));
-        UpdateTrust.Validate(manifest);
+        // The release signing key is private, so the checks sign a manifest with a throwaway key.
+        string testPublicKey;
+        UpdateManifest manifest;
+        using (var testKey = new RSACryptoServiceProvider(2048))
+        {
+            testPublicKey = testKey.ToXmlString(false);
+            manifest = new UpdateManifest
+            {
+                Product = UpdateTrust.Product,
+                Version = "3.0.5.0",
+                Url = "https://example.test/NewEra-MemorySelect.exe",
+                Sha256 = new string('A', 64),
+                Size = 11087360
+            };
+            manifest.Signature = Convert.ToBase64String(testKey.SignData(UpdateTrust.Canonical(manifest), "SHA256"));
+        }
+        UpdateTrust.Validate(manifest, testPublicKey);
         A(true, "Publisher RSA/SHA256 signature verifies");
-        if (File.Exists("tests/old-release-sample.exe"))
-            UpdateTrust.VerifyFile("tests/old-release-sample.exe", manifest);
-        A(true, "Signed release hash, byte size and assembly version verify");
+        using (var embedded = new RSACryptoServiceProvider())
+        {
+            embedded.FromXmlString(UpdateTrust.EmbeddedPublicKey());
+            A(embedded.KeySize == 3072 && embedded.PublicOnly, "Embedded publisher key is a 3072-bit public key");
+        }
+        A(!UpdateTrust.DefaultManifestUrl.Contains("by-rikimaru") && UpdateTrust.DefaultManifestUrl.StartsWith("https://"),
+            "Default update address points to this project, not the original author");
         string goodHash = manifest.Sha256;
         manifest.Sha256 = new string('0', 64);
         bool tampered = false;
         try
         {
-            UpdateTrust.Validate(manifest);
+            UpdateTrust.Validate(manifest, testPublicKey);
         }
         catch (InvalidDataException)
         {
@@ -541,7 +561,7 @@ class V3Checks
         bool http = false;
         try
         {
-            UpdateTrust.Validate(manifest);
+            UpdateTrust.Validate(manifest, testPublicKey);
         }
         catch (InvalidDataException)
         {
