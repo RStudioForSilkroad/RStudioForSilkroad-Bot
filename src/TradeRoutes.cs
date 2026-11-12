@@ -86,34 +86,54 @@ static class TradeRoutes
     }
 
     // Road-only plan: no teleport, ferry or flyship hop.
-    // Jangan's walls. The caravan road leaves and enters the city by the south gate, but the map data does not know where the gate
-    // opens: it only prices the wall, so a start in the north of the city would leave by the east gate and loop around the outside.
-    internal const double JanganLeft = 6170, JanganRight = 6675, JanganBottom = 955, JanganTop = 1330, SouthGateX = 6436, SouthGateY = 965;
+    // Jangan's walls. The caravan road leaves and enters the city by the south gate. The map data does not know where the gate opens:
+    // it only prices the wall, so a start in the north of the city would leave by the east gate and loop around the outside.
+    // The gate has three arches, each about 6 units wide (x about 6418, 6434, 6450; the game's own walkability query confirms them).
+    // The route is led straight through the west arch by three points on one line: inside the wall, in the arch, and a little way out.
+    internal const double JanganLeft = 6170, JanganRight = 6675, JanganBottom = 955, JanganTop = 1350, GateX = 6418;
+    internal static readonly double[] GateY = { 985, 935, 880 };
 
     internal static bool InJangan(Position p)
     {
         return p != null && p.X >= JanganLeft && p.X <= JanganRight && p.Y >= JanganBottom && p.Y <= JanganTop;
     }
 
-    // The south gate when the route crosses Jangan's wall (one end inside the city, the other outside), otherwise null.
-    internal static Position ViaPoint(Position start, Position goal)
+    static Position GatePoint(double y)
     {
-        if (InJangan(start) == InJangan(goal))
-            return null;
-        var gate = V2Rules.Center(SouthGateX, SouthGateY, 0);
+        var p = V2Rules.Center(GateX, y, 0);
         float height;
-        if (ExpeditionRules.TryGround(gate, out height))
-            gate.Height = height;
-        return gate;
+        if (ExpeditionRules.TryGround(p, out height))
+            p.Height = height;
+        return p;
+    }
+
+    // The arch points in the order the route passes them when it crosses Jangan's wall (one end inside the city, the other
+    // outside), otherwise null. Leaving: inside, arch, outside. Entering: the reverse.
+    internal static Position[] GatePoints(Position start, Position goal)
+    {
+        bool from = InJangan(start), to = InJangan(goal);
+        if (from == to)
+            return null;
+        var points = GateY.Select(GatePoint).ToArray();
+        if (!from)
+            Array.Reverse(points);
+        return points;
+    }
+
+    static TransitStep GateStep(Position p)
+    {
+        return new TransitStep { CellId = -1, To = new TransitGate { Code = "Güney kapı", X = p.X, Y = p.Y, Height = p.Height } };
     }
 
     internal static List<TransitStep> PlanVia(Position start, Position goal, Func<Position, Position, List<TransitStep>> planner)
     {
-        var via = ViaPoint(start, goal);
-        if (via == null)
+        var gate = GatePoints(start, goal);
+        if (gate == null)
             return planner(start, goal);
-        var plan = new List<TransitStep>(planner(start, via));
-        plan.AddRange(planner(via, goal));
+        var plan = new List<TransitStep>(planner(start, gate[0]));
+        foreach (var p in gate)
+            plan.Add(GateStep(p));
+        plan.AddRange(planner(gate[gate.Length - 1], goal));
         return plan;
     }
 

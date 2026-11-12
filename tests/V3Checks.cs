@@ -235,6 +235,18 @@ class V3Checks
         }
         var backPlan = TradeRoutes.PlanWalk(donwhangTrader, janganNorth);
         A(backPlan.Select(st => st.To.Point()).Min(q => q.Distance(southSoldier)) < 40, "Entering Jangan the caravan also uses the south gate");
+        // The arch is crossed in a straight line: three points on one x, directly after each other.
+        foreach (var archPlan in new[] { TradeRoutes.PlanWalk(janganNorth, donwhangTrader), TradeRoutes.PlanWalk(janganTrader, hotanTrader) })
+        {
+            int arch = archPlan.FindIndex(st => st.To.Code == "Güney kapı");
+            A(arch >= 0 && arch + 2 < archPlan.Count && archPlan[arch + 1].To.Code == "Güney kapı" && archPlan[arch + 2].To.Code == "Güney kapı" &&
+                Math.Abs(archPlan[arch].To.X - archPlan[arch + 2].To.X) < 1 && archPlan[arch].To.Y > archPlan[arch + 1].To.Y + 40 &&
+                archPlan[arch + 1].To.Y > archPlan[arch + 2].To.Y + 40, "Leaving Jangan the route runs straight south through the arch");
+        }
+        var entering = TradeRoutes.PlanWalk(donwhangTrader, janganTrader);
+        int enterArch = entering.FindIndex(st => st.To.Code == "Güney kapı");
+        A(enterArch >= 0 && entering[enterArch].To.Y < entering[enterArch + 1].To.Y && entering[enterArch + 1].To.Y < entering[enterArch + 2].To.Y,
+            "Entering Jangan the route runs straight north through the arch");
         var scriptSteps = TradeRoutes.PlanWalk(hotanTrader, donwhangTrader);
         string scriptText = TradeRoutes.Script("Hotan", "Donwhang", hotanTrader, scriptSteps);
         A(scriptText.Contains("# feribot: GATE_NPC_KT_FERRY2") && scriptText.Contains("1 feribot geçişi"), "Script marks the ferry crossing");
