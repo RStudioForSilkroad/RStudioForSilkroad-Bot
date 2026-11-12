@@ -970,6 +970,12 @@ sealed partial class MemorySelectV3Form : Form
 
     protected override void OnShown(EventArgs e)
     {
+        if (startupFrozen)
+        {
+            startupFrozen = false;
+            Ui.Thaw(this);
+            PerformLayout();
+        }
         base.OnShown(e);
         RegisterShortcut();
         SetupUpdates();
@@ -1028,6 +1034,11 @@ sealed partial class MemorySelectV3Form : Form
         poll.Dispose();
         release.Dispose();
         base.OnFormClosed(e);
+    }
+
+    internal static MemorySelectV3Form Create()
+    {
+        return new MemorySelectV3Form();
     }
 
     [STAThread]
@@ -1104,7 +1115,26 @@ sealed partial class MemorySelectV3Form : Form
                     MessageBox.Show("Bu hesap paneli zaten açık.");
                     return;
                 }
-                Application.Run(new MemorySelectV3Form());
+                StartupSplash splash = args.Length == 0 && Environment.GetEnvironmentVariable("SRSTUDIO_NOSPLASH") != "1" ?
+                    StartupSplash.Open() : null;
+                MemorySelectV3Form window;
+                try
+                {
+                    window = Startup.Build(delegate(string message, int index)
+                    {
+                        if (splash != null)
+                            splash.Report(message, index);
+                    });
+                }
+                catch
+                {
+                    if (splash != null)
+                        splash.Finish();
+                    throw;
+                }
+                if (splash != null)
+                    window.Shown += delegate { splash.Finish(); };
+                Application.Run(window);
             }
         }
         catch (Exception e)

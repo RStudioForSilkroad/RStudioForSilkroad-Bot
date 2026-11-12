@@ -276,7 +276,12 @@ sealed partial class MemorySelectV3Form : Form
         ApplyTheme();
         header.PerformLayout();
         PlaceHeaderRight();
+        // The window is built with layout held back and laid out once when it is first shown (see OnShown).
+        Ui.Freeze(this);
+        startupFrozen = true;
     }
+
+    bool startupFrozen;
 
     ListBox sidebar;
     int sidebarHover = -1;
@@ -377,7 +382,7 @@ sealed partial class MemorySelectV3Form : Form
         {
             var page = sidebar.SelectedItem as TabPage;
             if (page != null && tabs.SelectedTab != page)
-                tabs.SelectedTab = page;
+                ((FlatTabs)tabs).Choose(page);
         };
         tabs.SelectedIndexChanged += delegate
         {
@@ -509,6 +514,10 @@ sealed partial class MemorySelectV3Form : Form
         return control;
     }
 
+    bool arranged, arrangedTwo;
+    int arrangedUsable;
+    internal static int ArrangeRuns;
+
     void ArrangeHunt()
     {
         if (huntRoot == null)
@@ -519,6 +528,13 @@ sealed partial class MemorySelectV3Form : Form
         bool two = usable >= 1060;
         int gap = Ui.Pad;
         int cardWidth = two ? (usable - gap) / 2 : usable;
+        // The panel is resized many times while tabs switch and scrollbars appear; rebuilding all cards each time is what made the page slow.
+        if (arranged && two == arrangedTwo && usable == arrangedUsable)
+            return;
+        arranged = true;
+        arrangedTwo = two;
+        arrangedUsable = usable;
+        ArrangeRuns++;
         huntRoot.SuspendLayout();
         huntColumns.SuspendLayout();
         var all = leftCards.Concat(rightCards).ToList();

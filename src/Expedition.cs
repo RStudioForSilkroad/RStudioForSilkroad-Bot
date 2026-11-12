@@ -121,6 +121,13 @@ static class ExpeditionRules
         return roads.Value.Plan(start, goal, excluded);
     }
 
+    // Loads the road network now instead of when the first route is planned.
+    internal static void Warm()
+    {
+        if (roads.Value == null)
+            throw new InvalidOperationException("Yol ağı yüklenemedi.");
+    }
+
     internal static bool TryGround(Position p, out float height)
     {
         return roads.Value.TryGround(p, out height);

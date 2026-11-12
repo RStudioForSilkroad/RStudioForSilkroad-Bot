@@ -16,7 +16,11 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.8.0.0", Title = "Explorer 1 → 52, skill listesi ve Nanzhang şehir tanıma",
+    internal static readonly Entry[] All = { new Entry { Version = "3.8.1.0", Title = "Açılış ekranı ve hızlı sekme geçişi",
+        Items = new[] { "Yeni açılış ekranı: dosyalar denetlenir, ayarlar okunur, oyun verileri ve yol ağı yüklenir, pencere kurulur; ilerleme çubuğu adım adım gösterilir. Eksik dosya varsa adıyla bildirilir.",
+        "Av / Ayarlar sayfasına dönerken yaşanan donma giderildi: sayfa açılırken yüzlerce ayrı yerleşim hesabı yapılıyordu, artık düzen bir kez hesaplanır (3-5 sn yerine saniyenin onda biri).",
+        "Pencerenin ilk açılışı da aynı şekilde hızlandı." } },
+        new Entry { Version = "3.8.0.0", Title = "Explorer 1 → 52, skill listesi ve Nanzhang şehir tanıma",
         Items = new[] { "Explorer Yerleri sayfası yenilendi: 52 nokta listesi, bölge bölge yakınlaştırılan harita (Constantinople, Samarkand, Roc, Hotan, Donwhang, Jangan, Nanzhang) ve karakterin konumu.",
         "1 → 52 otomatik: bot sırayla her noktaya yürür, Explorer NPC’yi (Explorer Gisaeng Ahjin) oyunun nesne listesinde canlı bulur, bir kez tıklar ve seçim doğrulanınca sıradakine geçer. Bulunanlar kaydedilir, “Bulunanları atla” ile kaldığı yerden devam edilir.",
         "Haritadaki konumlar yaklaşıktır: NPC yakına gelince canlı bulunur; görünmezse noktanın çevresinde iki halka dolaşılır, yine yoksa nokta “Bulunamadı” olur ve sıra devam eder. NPC modeli sayfadan değiştirilebilir.",

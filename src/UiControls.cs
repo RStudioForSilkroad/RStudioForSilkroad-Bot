@@ -239,6 +239,23 @@ sealed class CardBox : Panel
 // Page host without header strip and without the frame the system draws around tab pages.
 sealed class FlatTabs : TabControl
 {
+    // Switches the page with the layout frozen, then lays out the new page once.
+    internal void Choose(TabPage page)
+    {
+        if (page == null || SelectedTab == page)
+            return;
+        Ui.Freeze(this);
+        try
+        {
+            SelectedTab = page;
+        }
+        finally
+        {
+            Ui.Thaw(this);
+        }
+        page.PerformLayout();
+    }
+
     protected override void WndProc(ref Message m)
     {
         if (m.Msg == 0x1328 && !DesignMode)

@@ -79,6 +79,34 @@ class V3Checks
         A(!none.HasAttack && none.NextAttack(0) == 0, "No attack lines, no attack key");
     }
 
+    static void StartupChecks()
+    {
+        var names = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceNames();
+        A(Startup.MissingResources(names).Count == 0, "Every embedded file the start-up procedure requires is in the program");
+        var missing = Startup.MissingResources(names.Where(n => n != "road-mesh.bin.gz"));
+        A(missing.Count == 1 && missing[0] == "road-mesh.bin.gz", "A missing embedded file is reported by name");
+        A(Startup.Percent(0, 5) == 0 && Startup.Percent(2, 5) == 40 && Startup.Percent(5, 5) == 100 && Startup.Percent(9, 5) == 100 &&
+            Startup.Percent(1, 0) == 0, "Start-up progress is a percentage of finished steps");
+        A(Startup.StepNames.Length == 5 && Startup.StepNames.All(s => s.Length > 0), "Start-up has five named steps");
+        Startup.WarmData();
+        ExpeditionRules.Warm();
+        A(true, "Game data and the road network load in the start-up procedure");
+        // Freeze and thaw hold the layout of a whole tree and release it again.
+        var host = new Panel { Width = 300, Height = 200 };
+        var inner = new FlowLayoutPanel { AutoSize = true };
+        host.Controls.Add(inner);
+        inner.Controls.Add(new Label { Text = "a" });
+        int layouts = 0;
+        inner.Layout += delegate { layouts++; };
+        Ui.Freeze(host);
+        inner.Controls.Add(new Label { Text = "b" });
+        inner.Controls.Add(new Label { Text = "c" });
+        int duringFreeze = layouts;
+        Ui.Thaw(host);
+        inner.PerformLayout();
+        A(duringFreeze == 0 && layouts > 0, "Frozen layout is held back and runs again after the thaw");
+    }
+
     static void ExplorerChecks()
     {
         var all = ExplorerSpots.All;
@@ -166,6 +194,7 @@ class V3Checks
         }
         A(!RoadMesh.WalkOnly, "Road-only flag is released after planning");
         SkillChecks();
+        StartupChecks();
         ExplorerChecks();
         // Unique alert: once per monster, again after it left and came back; ordinary monsters are ignored.
         var alert = new UniqueAlert();

@@ -104,6 +104,22 @@ static class Ui
         return path;
     }
 
+    // Layout is held back for a whole control tree while it changes a lot at once (a page becoming visible, the window being built).
+    // Without this every child that turns visible makes its parent lay out again: hundreds of passes for the Hunt page.
+    internal static void Freeze(Control root)
+    {
+        root.SuspendLayout();
+        foreach (Control child in root.Controls)
+            Freeze(child);
+    }
+
+    internal static void Thaw(Control root)
+    {
+        foreach (Control child in root.Controls)
+            Thaw(child);
+        root.ResumeLayout(false);
+    }
+
     internal static void DoubleBuffer(Control c)
     {
         try
