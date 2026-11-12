@@ -23,7 +23,8 @@ static class TradeRoutes
     internal static readonly string[] Towns = { "Hotan", "Jangan", "Donwhang" };
     internal static readonly string[][] Routes =
     {
-        new[] { "Hotan", "Jangan" }, new[] { "Jangan", "Hotan" }, new[] { "Hotan", "Donwhang" }, new[] { "Donwhang", "Hotan" }
+        new[] { "Hotan", "Jangan" }, new[] { "Jangan", "Hotan" }, new[] { "Hotan", "Donwhang" }, new[] { "Donwhang", "Hotan" },
+        new[] { "Jangan", "Donwhang" }, new[] { "Donwhang", "Jangan" }
     };
 
     internal static string StorePath
@@ -44,6 +45,9 @@ static class TradeRoutes
             return null;
         if (name.IndexOf("Donwhang", StringComparison.OrdinalIgnoreCase) >= 0)
             return "Donwhang";
+        // The city itself is the "Hotan Kingdom" sector, its surroundings are "Hotan".
+        if (name.IndexOf("Hotan", StringComparison.OrdinalIgnoreCase) >= 0)
+            return "Hotan";
         return Towns.Contains(name) ? name : null;
     }
 
