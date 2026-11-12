@@ -1,12 +1,13 @@
 using System;
 using System.Collections.Generic;
-using System.Drawing;
 using System.Linq;
-using System.Windows.Forms;
 
 // One line of the skill list: a hotbar key and when to press it.
-//   Saldırı      pressed in turn while a target is selected; Seconds = this skill's own cooldown (0 = none)
-//   Buff         pressed when due, no target needed; Seconds = repeat interval (0 = once per run)
+//   Saldırı      pressed in turn while a target is selected. Seconds = this skill's own cooldown (0 = none).
+//                Target limits it to one monster class (Hepsi = any); MinMobs = only when at least that many monsters are close.
+//   Buff         pressed when due, no target needed. With a Skill ID the bot looks at the character's active buffs and presses
+//                the key only when that buff is gone; without one it repeats every Seconds (0 = once per run).
+//   Acil         emergency buff: pressed when HP falls below Percent, or when at least MinMobs monsters crowd the character.
 //   İyileştirme  pressed when HP falls below Percent; Seconds = cooldown
 //   Mana         pressed when MP falls below Percent; Seconds = cooldown
 public sealed class SkillSlot
@@ -16,27 +17,83 @@ public sealed class SkillSlot
     public string Kind = "Saldırı";
     public int Seconds;
     public int Percent = 50;
+    public string Name = "";
+    public int SkillId;
+    public string Target = "Hepsi";
+    public int MinMobs;
+}
+
+// Options that apply to the whole list (the phBot attack / buff tab check boxes that make sense for this bot).
+public sealed class SkillOptions
+{
+    public bool BuffWhileAttacking = true, Rearm = true, InOrder = true, Fallback = true, BuffOnly;
+}
+
+public sealed class SkillProfile
+{
+    public string Name = "";
+    public List<SkillSlot> Slots = new List<SkillSlot>();
+    public SkillOptions Options = new SkillOptions();
+}
+
+// What the rotation needs to know about the character right now.
+sealed class SkillContext
+{
+    internal int Hp = 100, Mp = 100, Attackers;
+    internal bool StatsKnown = true, InCombat;
+    internal HashSet<uint> Buffs;
+}
+
+// Windows keyboard messages for a window that is not in front: WM_KEYDOWN / WM_KEYUP with the scan code in lParam.
+static class KeyMessage
+{
+    internal const uint Down = 0x100, Up = 0x101;
+
+    internal static uint LParam(ushort scan, bool up)
+    {
+        uint value = 1u | ((uint)scan << 16);
+        return up ? value | (1u << 30) | (1u << 31) : value;
+    }
+
+    internal static IntPtr Param(ushort scan, bool up)
+    {
+        return new IntPtr(unchecked((int)LParam(scan, up)));
+    }
+
+    internal static bool Post(IntPtr window, ushort vk, ushort scan, bool up)
+    {
+        return window != IntPtr.Zero && Native.PostMessage(window, up ? Up : Down, new UIntPtr(vk), Param(scan, up));
+    }
 }
 
 sealed class SkillRotation
 {
-    internal const string Attack_ = "Saldırı", Buff_ = "Buff", Heal_ = "İyileştirme", Mana_ = "Mana";
-    internal static readonly string[] Kinds = { Attack_, Buff_, Heal_, Mana_ };
+    internal const string Attack_ = "Saldırı", Buff_ = "Buff", Heal_ = "İyileştirme", Mana_ = "Mana", Emergency_ = "Acil";
+    internal static readonly string[] Kinds = { Attack_, Buff_, Emergency_, Heal_, Mana_ };
+    internal const string AnyTarget = "Hepsi";
+    internal static readonly string[] Targets = { AnyTarget, "General", "Champion", "Giant", "General Party", "Champion Party",
+        "Giant Party", "Unique", "Diğer" };
 
     sealed class Entry
     {
         internal ushort Key;
-        internal string Kind;
-        internal int Seconds, Percent;
+        internal string Kind, Target;
+        internal int Seconds, Percent, SkillId, MinMobs, Failures;
         internal long Due;
     }
 
     readonly List<Entry> entries = new List<Entry>();
     int attackIndex;
+    SkillOptions options = new SkillOptions();
 
     internal bool HasAttack
     {
         get { return entries.Any(e => e.Kind == Attack_); }
+    }
+
+    internal SkillOptions Options
+    {
+        get { return options; }
     }
 
     // The virtual-key code of a hotbar key name (1-9, 0, A-Z, F1-F12), or 0 when the name is not usable.
@@ -67,21 +124,39 @@ sealed class SkillRotation
                 return (i + 1) + ". skill: tür seçilmedi.";
             if (s.Seconds < 0 || s.Seconds > 3600)
                 return (i + 1) + ". skill: süre 0-3600 sn olmalı.";
-            if ((s.Kind == Heal_ || s.Kind == Mana_) && (s.Percent < 1 || s.Percent > 99))
-                return (i + 1) + ". skill: yüzde 1-99 olmalı.";
+            // An emergency line may live on the crowd condition alone (percent 0); every other percent line needs 1-99.
+            bool crowdOnly = s.Kind == Emergency_ && s.MinMobs > 0;
+            if ((s.Kind == Heal_ || s.Kind == Mana_ || s.Kind == Emergency_) && (s.Percent < (crowdOnly ? 0 : 1) || s.Percent > 99))
+                return (i + 1) + ". skill: yüzde " + (crowdOnly ? "0" : "1") + "-99 olmalı.";
+            if (s.SkillId < 0 || s.SkillId > 99999999)
+                return (i + 1) + ". skill: Skill ID geçersiz.";
+            if (s.MinMobs < 0 || s.MinMobs > 50)
+                return (i + 1) + ". skill: en az mob sayısı 0-50 olmalı.";
+            if (s.Kind == Attack_ && !string.IsNullOrEmpty(s.Target) && !Targets.Contains(s.Target))
+                return (i + 1) + ". skill: hedef türü tanınmıyor.";
         }
         return null;
     }
 
     internal void Load(IEnumerable<SkillSlot> slots)
     {
+        Load(slots, null);
+    }
+
+    internal void Load(IEnumerable<SkillSlot> slots, SkillOptions skillOptions)
+    {
         entries.Clear();
         attackIndex = 0;
+        options = skillOptions ?? new SkillOptions();
         foreach (var s in slots.Where(s => s.On))
         {
             ushort key = ParseKey(s.Key);
             if (key != 0 && Kinds.Contains(s.Kind))
-                entries.Add(new Entry { Key = key, Kind = s.Kind, Seconds = Math.Max(0, s.Seconds), Percent = s.Percent });
+                entries.Add(new Entry
+                {
+                    Key = key, Kind = s.Kind, Seconds = Math.Max(0, s.Seconds), Percent = s.Percent, SkillId = Math.Max(0, s.SkillId),
+                    Target = string.IsNullOrEmpty(s.Target) ? AnyTarget : s.Target, MinMobs = Math.Max(0, s.MinMobs)
+                });
         }
     }
 
@@ -91,33 +166,106 @@ sealed class SkillRotation
         return entries.Select(e => e.Key).Distinct().ToList();
     }
 
-    // Heal first, then mana, then buffs: the key to press now without a target, or 0.
+    // After a revival or a change of area the buffs are gone: every buff is due again.
+    internal void Rearm()
+    {
+        foreach (var e in entries)
+        {
+            e.Due = 0;
+            e.Failures = 0;
+        }
+    }
+
+    // A new target starts the attack list from its first line again (phBot: "Cast skills in order").
+    internal void NewTarget()
+    {
+        if (options.InOrder)
+            attackIndex = 0;
+    }
+
     internal ushort Support(long now, int hpPercent, int mpPercent, bool statsKnown)
     {
-        foreach (string kind in new[] { Heal_, Mana_, Buff_ })
+        return Support(now, new SkillContext { Hp = hpPercent, Mp = mpPercent, StatsKnown = statsKnown });
+    }
+
+    // Emergency, then heal, then mana, then buffs: the key to press now without a target, or 0.
+    internal ushort Support(long now, SkillContext c)
+    {
+        foreach (var e in entries)
+        {
+            if (e.Kind != Emergency_ || now < e.Due)
+                continue;
+            bool low = c.StatsKnown && e.Percent > 0 && c.Hp < e.Percent, crowded = e.MinMobs > 0 && c.Attackers >= e.MinMobs;
+            if (!low && !crowded)
+                continue;
+            if (e.SkillId > 0 && c.Buffs != null && c.Buffs.Contains((uint)e.SkillId))
+                continue;
+            e.Due = now + Math.Max(2, e.Seconds) * 1000L;
+            return e.Key;
+        }
+        foreach (string kind in new[] { Heal_, Mana_ })
             foreach (var e in entries)
             {
                 if (e.Kind != kind || now < e.Due)
                     continue;
-                if (kind == Heal_ && !(statsKnown && hpPercent < e.Percent))
+                if (kind == Heal_ && !(c.StatsKnown && c.Hp < e.Percent))
                     continue;
-                if (kind == Mana_ && !(statsKnown && mpPercent < e.Percent))
+                if (kind == Mana_ && !(c.StatsKnown && c.Mp < e.Percent))
                     continue;
-                e.Due = kind == Buff_ ? (e.Seconds == 0 ? long.MaxValue : now + e.Seconds * 1000L) : now + Math.Max(2, e.Seconds) * 1000L;
+                e.Due = now + Math.Max(2, e.Seconds) * 1000L;
                 return e.Key;
             }
+        foreach (var e in entries)
+        {
+            if (e.Kind != Buff_ || now < e.Due || (c.InCombat && !options.BuffWhileAttacking))
+                continue;
+            if (e.SkillId > 0 && c.Buffs != null)
+            {
+                // The character's own buff list says whether it is still on. A key that keeps failing (no mana, skill not learned)
+                // is retried every 3 s five times, then left alone for 30 s.
+                if (c.Buffs.Contains((uint)e.SkillId))
+                {
+                    e.Failures = 0;
+                    continue;
+                }
+                e.Failures++;
+                e.Due = now + (e.Failures % 5 == 0 ? 30000 : 3000);
+            }
+            else
+                e.Due = e.Seconds == 0 ? long.MaxValue : now + e.Seconds * 1000L;
+            return e.Key;
+        }
         return 0;
     }
 
-    // The next attack key in turn whose own cooldown is over, or 0.
     internal ushort NextAttack(long now)
+    {
+        return NextAttack(now, null, 99);
+    }
+
+    // The next attack key in turn whose own cooldown is over, or 0. className is the target's class (General, Giant ...);
+    // near is the number of monsters close to the character. Lines made for the target's class come first; lines for "Hepsi" are the
+    // general list and are used when the class has no line of its own (or, with the fallback option, when none of them is ready).
+    internal ushort NextAttack(long now, string className, int near)
+    {
+        bool specific = className != null && entries.Any(e => e.Kind == Attack_ && e.Target == className);
+        if (specific)
+        {
+            ushort key = Pick(now, near, e => e.Target == className);
+            if (key != 0 || !options.Fallback)
+                return key;
+        }
+        return Pick(now, near, e => e.Target == AnyTarget);
+    }
+
+    ushort Pick(long now, int near, Func<Entry, bool> inList)
     {
         int count = entries.Count;
         for (int step = 0; step < count; step++)
         {
             int index = (attackIndex + step) % count;
             var e = entries[index];
-            if (e.Kind != Attack_ || now < e.Due)
+            if (e.Kind != Attack_ || now < e.Due || !inList(e) || near < e.MinMobs)
                 continue;
             e.Due = now + e.Seconds * 1000L;
             attackIndex = (index + 1) % count;
@@ -125,154 +273,36 @@ sealed class SkillRotation
         }
         return 0;
     }
-}
 
-sealed partial class MemorySelectV3Form
-{
-    readonly CheckBox skillListBox = new CheckBox();
-    readonly DataGridView skillGrid = new DataGridView();
-    readonly SkillRotation rotation = new SkillRotation();
-    bool useRotation, skillLoading;
+    // Ready-made lists. All lines are off: the keys are placeholders the user sets to the hotbar before turning a line on.
+    internal static readonly string[] TemplateNames = { "Savunma buff seti", "Alan hasarı + tek hedef", "Yalnız buff / iyileştirme" };
 
-    static List<SkillSlot> DefaultSkills()
+    internal static List<SkillSlot> Template(string name)
     {
-        return new List<SkillSlot>
-        {
-            new SkillSlot { Key = "1", Kind = SkillRotation.Attack_ },
-            new SkillSlot { Key = "2", Kind = SkillRotation.Attack_ },
-            new SkillSlot { On = false, Key = "7", Kind = SkillRotation.Heal_, Seconds = 3, Percent = 50 },
-            new SkillSlot { On = false, Key = "8", Kind = SkillRotation.Mana_, Seconds = 3, Percent = 40 },
-            new SkillSlot { On = false, Key = "9", Kind = SkillRotation.Buff_, Seconds = 120 }
-        };
-    }
-
-    void BuildSkillCard()
-    {
-        var card = Card("Skill listesi");
-        var row = Line(card);
-        ConfigureCheck(skillListBox, "Skill listesini kullan · üstteki Tuşlar kutusu yerine geçer", false, 0);
-        row.Controls.Add(skillListBox);
-        row = Line(card);
-        skillGrid.Height = 212;
-        skillGrid.AllowUserToAddRows = false;
-        skillGrid.AllowUserToResizeRows = false;
-        skillGrid.RowHeadersVisible = false;
-        skillGrid.MultiSelect = false;
-        skillGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
-        skillGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-        skillGrid.Columns.Add(new DataGridViewCheckBoxColumn { Name = "On", HeaderText = "Açık", Width = 52 });
-        skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Key", HeaderText = "Tuş", Width = 56 });
-        var kind = new DataGridViewComboBoxColumn { Name = "Kind", HeaderText = "Tür", Width = 124, FlatStyle = FlatStyle.Flat };
-        kind.Items.AddRange(SkillRotation.Kinds);
-        skillGrid.Columns.Add(kind);
-        skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Seconds", HeaderText = "Süre (sn)", Width = 84 });
-        skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Percent", HeaderText = "HP/MP altı %", Width = 108 });
-        skillGrid.CurrentCellDirtyStateChanged += delegate
-        {
-            if (skillGrid.IsCurrentCellDirty && skillGrid.CurrentCell is DataGridViewCheckBoxCell)
-                skillGrid.CommitEdit(DataGridViewDataErrorContexts.Commit);
-        };
-        skillGrid.CellValueChanged += delegate
-        {
-            if (!skillLoading)
-                SaveSettings();
-        };
-        skillGrid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
-        locked.Add(skillGrid);
-        row.Controls.Add(Stretch(skillGrid));
-        row = Line(card);
-        row.Controls.Add(Btn("+ Skill ekle", delegate { AddSkillRow(new SkillSlot { Key = "3" }); }, 120, true, ButtonKind.Primary));
-        row.Controls.Add(Btn("− Sil", RemoveSkillRow, 80));
-        row.Controls.Add(Btn("▲", delegate { MoveSkillRow(-1); }, 44));
-        row.Controls.Add(Btn("▼", delegate { MoveSkillRow(1); }, 44));
-        row = Line(card);
-        var help = new Label { AutoSize = false, Height = 88, Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
-            "Saldırı: hedef seçiliyken sırayla basılır; süre bu skill'in kendi bekleme süresidir.\r\n" +
-            "Buff: süre dolunca basılır, hedef gerekmez (0 = çalıştırma başına bir kez).\r\n" +
-            "İyileştirme / Mana: HP / MP yüzdesi sınırın altına inince basılır; süre bekleme süresidir.\r\n" +
-            "Tuş: 1-9, 0, A-Z veya F1-F12. Öncelik: iyileştirme, mana, buff, saldırı." };
-        row.Controls.Add(Stretch(help));
-        LoadSkillRows(DefaultSkills());
-    }
-
-    void AddSkillRow(SkillSlot s)
-    {
-        int index = skillGrid.Rows.Add(s.On, s.Key, SkillRotation.Kinds.Contains(s.Kind) ? s.Kind : SkillRotation.Attack_,
-            s.Seconds.ToString(), s.Percent.ToString());
-        skillGrid.CurrentCell = skillGrid.Rows[index].Cells[1];
-    }
-
-    void LoadSkillRows(IEnumerable<SkillSlot> slots)
-    {
-        skillLoading = true;
-        try
-        {
-            skillGrid.Rows.Clear();
-            foreach (var s in slots.ToList())
-                skillGrid.Rows.Add(s.On, s.Key, SkillRotation.Kinds.Contains(s.Kind) ? s.Kind : SkillRotation.Attack_, s.Seconds.ToString(),
-                    s.Percent.ToString());
-        }
-        finally
-        {
-            skillLoading = false;
-        }
-    }
-
-    void RemoveSkillRow()
-    {
-        if (skillGrid.CurrentRow != null)
-        {
-            skillGrid.Rows.RemoveAt(skillGrid.CurrentRow.Index);
-            SaveSettings();
-        }
-    }
-
-    void MoveSkillRow(int direction)
-    {
-        var row = skillGrid.CurrentRow;
-        if (row == null)
-            return;
-        int from = row.Index, to = from + direction;
-        if (to < 0 || to >= skillGrid.Rows.Count)
-            return;
-        skillGrid.Rows.RemoveAt(from);
-        skillGrid.Rows.Insert(to, row);
-        skillGrid.CurrentCell = skillGrid.Rows[to].Cells[1];
-        SaveSettings();
-    }
-
-    static int ToInt(object value, int fallback)
-    {
-        int number;
-        return value != null && int.TryParse(value.ToString().Trim(), out number) ? number : fallback;
-    }
-
-    List<SkillSlot> SkillSlotsFromGrid()
-    {
-        var list = new List<SkillSlot>();
-        foreach (DataGridViewRow row in skillGrid.Rows)
-            list.Add(new SkillSlot
+        if (name == TemplateNames[0])
+            return new List<SkillSlot>
             {
-                On = row.Cells["On"].Value != null && Convert.ToBoolean(row.Cells["On"].Value),
-                Key = row.Cells["Key"].Value == null ? "" : row.Cells["Key"].Value.ToString().Trim(),
-                Kind = row.Cells["Kind"].Value == null ? "" : row.Cells["Kind"].Value.ToString(),
-                Seconds = ToInt(row.Cells["Seconds"].Value, 0),
-                Percent = ToInt(row.Cells["Percent"].Value, 50)
-            });
-        return list;
-    }
-
-    // Presses a heal, mana or buff key when one is due (no target needed). True when a key was sent this tick.
-    bool PressSupport(long now)
-    {
-        if (!useRotation || !RunSendKeys || heldScan != 0 || now < nextKey)
-            return false;
-        int hp = snapshot.MaxHp > 0 ? (int)(snapshot.Hp * 100L / snapshot.MaxHp) : 100;
-        int mp = snapshot.MaxMp > 0 ? (int)(snapshot.Mp * 100L / snapshot.MaxMp) : 100;
-        ushort key = rotation.Support(now, hp, mp, snapshot.StatsKnown);
-        if (key == 0 || !Press(key))
-            return false;
-        nextKey = now + RunDelay;
-        return true;
+                new SkillSlot { On = false, Key = "5", Kind = Buff_, Name = "Savunma buff 1", Seconds = 180 },
+                new SkillSlot { On = false, Key = "6", Kind = Buff_, Name = "Savunma buff 2", Seconds = 180 },
+                new SkillSlot { On = false, Key = "7", Kind = Emergency_, Name = "Acil kalkan", Percent = 35, Seconds = 30 },
+                new SkillSlot { On = false, Key = "8", Kind = Heal_, Name = "İyileştirme", Percent = 55, Seconds = 4 },
+                new SkillSlot { On = false, Key = "9", Kind = Mana_, Name = "Mana", Percent = 35, Seconds = 4 }
+            };
+        if (name == TemplateNames[1])
+            return new List<SkillSlot>
+            {
+                new SkillSlot { On = false, Key = "1", Kind = Attack_, Name = "Ana saldırı" },
+                new SkillSlot { On = false, Key = "2", Kind = Attack_, Name = "Alan hasarı", MinMobs = 3, Seconds = 6 },
+                new SkillSlot { On = false, Key = "3", Kind = Attack_, Name = "Dev için güçlü", Target = "Giant", Seconds = 8 },
+                new SkillSlot { On = false, Key = "4", Kind = Attack_, Name = "Unique için güçlü", Target = "Unique", Seconds = 8 }
+            };
+        if (name == TemplateNames[2])
+            return new List<SkillSlot>
+            {
+                new SkillSlot { On = false, Key = "5", Kind = Buff_, Name = "Buff 1", Seconds = 180 },
+                new SkillSlot { On = false, Key = "6", Kind = Buff_, Name = "Buff 2", Seconds = 180 },
+                new SkillSlot { On = false, Key = "8", Kind = Heal_, Name = "İyileştirme", Percent = 60, Seconds = 4 }
+            };
+        return new List<SkillSlot>();
     }
 }

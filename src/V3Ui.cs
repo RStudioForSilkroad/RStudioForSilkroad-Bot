@@ -271,6 +271,8 @@ sealed partial class MemorySelectV3Form : Form
         BuildDualAccount();
         BuildModernTabs();
         BuildCaravan();
+        BuildSkillsPage();
+        RestoreSkillSettings(settings);
         BuildLogTab();
         BuildNavigation(workspace);
         ApplyTheme();
@@ -295,6 +297,7 @@ sealed partial class MemorySelectV3Form : Form
         { "Çift Hesap · Deneme", "" },
         { "Nanzhang NPC", "" },
         { "Kervan Rotası", "" },
+        { "Skiller", "" },
         { "Log", "" }
     };
 
@@ -312,9 +315,16 @@ sealed partial class MemorySelectV3Form : Form
             order.Remove(caravanPage);
             order.Insert(3, caravanPage);
         }
+        // The skills page sits with the work pages too, after the caravan page.
+        var skillsPage = order.FirstOrDefault(t => t.Text == "Skiller");
+        if (skillsPage != null)
+        {
+            order.Remove(skillsPage);
+            order.Insert(4, skillsPage);
+        }
         foreach (TabPage page in order)
             sidebar.Items.Add(page);
-        Func<int, string> caption = i => i == 0 ? "ÇALIŞMA" : i == 4 ? "ARAÇLAR" : null;
+        Func<int, string> caption = i => i == 0 ? "ÇALIŞMA" : i == 5 ? "ARAÇLAR" : null;
         sidebar.MeasureItem += delegate(object sender, MeasureItemEventArgs e)
         {
             e.ItemHeight = (caption(e.Index) == null ? 0 : 34) + 44;
@@ -657,7 +667,6 @@ sealed partial class MemorySelectV3Form : Form
         row = Line(card);
         ConfigureCheck(goHome, "Hedef yoksa / alan dışındaysa merkeze dön", true, 0);
         row.Controls.Add(goHome);
-        BuildSkillCard();
 
         // Right column: control, maintenance, travel
         card = Card("Kontrol", 1);
@@ -820,9 +829,6 @@ sealed partial class MemorySelectV3Form : Form
         backgroundWalk.Checked = settings.BackgroundWalk;
         notifyDone.Checked = settings.NotifyDone;
         uniqueAlertBox.Checked = settings.UniqueAlert;
-        skillListBox.Checked = settings.SkillList;
-        if (settings.Skills != null && settings.Skills.Count > 0)
-            LoadSkillRows(settings.Skills);
         autoEnterGrim.Checked = settings.AutoEnterGrim;
         if (settings.ExplorerDone == null)
             settings.ExplorerDone = new List<int>();
@@ -875,8 +881,7 @@ sealed partial class MemorySelectV3Form : Form
         settings.BackgroundWalk = backgroundWalk.Checked;
         settings.NotifyDone = notifyDone.Checked;
         settings.UniqueAlert = uniqueAlertBox.Checked;
-        settings.SkillList = skillListBox.Checked;
-        settings.Skills = SkillSlotsFromGrid();
+        SaveSkillSettings(settings);
         settings.AutoEnterGrim = autoEnterGrim.Checked;
         settings.ExplorerSkipDone = explorerSkipDone.Checked;
         settings.ExplorerModel = (int)explorerModel.Value;

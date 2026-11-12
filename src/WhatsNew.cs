@@ -16,7 +16,16 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.9.0.0", Title = "Kervan feribotu, arka planda yürüyüş ve hız",
+    internal static readonly Entry[] All = { new Entry { Version = "3.10.0.0", Title = "Skiller sayfası, buff takibi ve Grim'de durmayan yürüyüş",
+        Items = new[] { "Yeni Skiller sayfası (phBot'un Attack / Buffs sekmelerindeki özelliklere göre): her satırın adı, tuşu, türü, Skill ID'si, hedef türü, en az mob sayısı, süresi ve HP/MP yüzdesi vardır.",
+        "Buff takibi: Skill ID'si olan buff'ın açık olup olmadığı karakterin gerçek buff listesinden okunur; buff bitince tuş basılır, açıkken basılmaz. “Buff ID’sini öğren” düğmesi ID'yi kendisi bulur: satırı seç, düğmeye bas, oyunda buff'ı kullan.",
+        "Acil buff: can yüzdesi sınırın altına inince ya da etraftaki canavar sayısı sınıra ulaşınca basılır. İyileştirme ve mana önceliği: acil, iyileştirme, mana, buff, saldırı.",
+        "Saldırı satırları hedef türüne (General, Champion, Giant, Unique ...) ve yakındaki mob sayısına göre seçilir; türe özel skill hazır değilse genel liste kullanılır. Yeni hedefte sıra baştan başlar.",
+        "Dirilince ve yeni bölgeye girince buff'lar yeniden basılır. “Saldırırken de buff yenile”, “Yalnız buff / iyileştirme yap” (Cleric, Bard) seçenekleri eklendi.",
+        "Profiller: skill listesi adla kaydedilir, yüklenir; üç hazır şablon eklendi (savunma buff seti, alan hasarı, yalnız buff).",
+        "Arka plan tuşları: “Oyun önde değilken de tuşları gönder” açılırsa tuşlar oyun penceresine Windows mesajıyla gider; av, Grim Crypt, buff ve iyileştirme oyun arkadayken de çalışır. “Arka plan tuşunu sına” düğmesi istemcinin bunu kabul edip etmediğini mana ve buff değişimine bakarak doğrular; kabul etmiyorsa seçeneği kendisi kapatır.",
+        "Grim Crypt: ilk odadaki canavarlar bitince “yol bulunamadı” diye duran bot artık durmaz. Rota bulunamazsa önce doğrulanmış zemin hücreleri üzerinden gider, olmazsa o noktayı atlayıp sıradakine geçer, kısa bekleyip yeniden dener." } },
+        new Entry { Version = "3.9.0.0", Title = "Kervan feribotu, arka planda yürüyüş ve hız",
         Items = new[] { "Kervan rotaları: Hotan, Jangan ve Donwhang arasında altı rota. Nehir geçişlerinde en uygun feribot geçidi seçilir ve karakter feribot NPC’sine kendisi tıklayıp karşıya geçer; teleport kullanılmaz.",
         "Jangan'a giren ya da çıkan rotalar surun güney kapısındaki kemerden düz geçer; karakter şehrin neresinde olursa olsun doğu kapıdan dolanmaz.",
         "Tüm NPC'ler artık okunur: “Seçili NPC’yi kaydet” tüccarları kaydeder, Explorer NPC’si bulunur. Hotan şehri (Hotan Kingdom sektörü) tüccar kaydında tanınır.",

@@ -16,6 +16,10 @@ sealed partial class MemorySelectV3Form : Form
     uint routeTarget;
     long nextVisibility;
     bool grimHolding, grimWaiting;
+    // Grim walking that finds no route does not stop the run: it falls back to the checked floor cells, then skips the point.
+    List<Position> graphPath;
+    int graphIndex, grimFailures;
+    long grimRetryAt;
     bool targetWalkable;
     readonly Dictionary<uint, string> names = Catalog.Load();
     readonly ComboBox processes = new ComboBox(), monsters = new ComboBox(), berserkClass = new ComboBox();
@@ -243,9 +247,9 @@ sealed partial class MemorySelectV3Form : Form
             string problem = SkillRotation.Validate(slots);
             if (problem != null)
                 throw new InvalidOperationException(problem);
-            rotation.Load(slots);
+            rotation.Load(slots, SkillOptionsFromUi());
             list.AddRange(rotation.Keys());
-            if (mode != OperationMode.Travel && RunSendKeys && !rotation.HasAttack)
+            if (mode != OperationMode.Travel && RunSendKeys && !rotation.HasAttack && !(rotation.Options.BuffOnly && mode == OperationMode.Hunt))
                 throw new InvalidOperationException("Skill listesinde en az bir açık Saldırı skill'i olmalı.");
         }
         else
@@ -302,6 +306,9 @@ sealed partial class MemorySelectV3Form : Form
         bool wasReturning = active && snapshot != null && snapshot.PlayerAlive && recovery.Phase == RecoveryPhase.Ready &&
             (returning || operation == OperationMode.Travel || operation == OperationMode.Grim);
         routeWalker.Reset();
+        graphPath = null;
+        grimFailures = 0;
+        grimRetryAt = 0;
         caravanWalk = false;
         if (explorerRun != null && !explorerAdvancing)
         {
@@ -432,7 +439,9 @@ sealed partial class MemorySelectV3Form : Form
             return false;
         if (reader.IsForeground())
             return true;
-        return backgroundWalk.Checked && operation == OperationMode.Travel && !reader.IsMinimized();
+        if (reader.IsMinimized())
+            return false;
+        return operation == OperationMode.Travel ? backgroundWalk.Checked : backgroundKeys.Checked;
     }
 
     bool WalkChecked(Position destination, long now, Func<Position, bool> allowed, string label, bool skipOnFailure)
@@ -472,6 +481,8 @@ sealed partial class MemorySelectV3Form : Form
         {
             string reason = routeWalker.Message;
             routeWalker.Reset();
+            if (operation == OperationMode.Grim && !skipOnFailure && GrimWalkFailed(reason, destination, now))
+                return false;
             if (TryReplanRoad(reason))
                 return false;
             if (skipOnFailure && wanted != 0)
@@ -595,6 +606,7 @@ sealed partial class MemorySelectV3Form : Form
                 worldMap.Invalidate();
                 RefreshRoutes();
             }
+            SkillTick(now);
             if (grim.Running && grim.Location != null && ExpeditionRules.Cleared(completionNotice.Message, grim.Location.Code))
                 snapshot.Grim.Text = completionNotice.Message;
             bool began = (!active || (snapshot.PlayerAlive && recovery.Phase == RecoveryPhase.Ready)) && grim.Observe(snapshot);
@@ -661,6 +673,8 @@ sealed partial class MemorySelectV3Form : Form
                 if (travel.Destination != null)
                     travel.Set(travel.Destination, snapshot.Player, now);
                 nextMove = nextKey = now + 1000;
+                if (useRotation && rotation.Options.Rearm)
+                    rotation.Rearm();
                 Log(recovery.Message);
             }
             if (recovery.Phase != RecoveryPhase.Ready)
@@ -684,8 +698,8 @@ sealed partial class MemorySelectV3Form : Form
                 routeWalker.Pause(elapsed);
                 if (returning)
                     returnProgressAt += elapsed;
-                status.Text = backgroundWalk.Checked && operation == OperationMode.Travel ? "Bekliyor: oyun penceresi simge durumunda; büyüt ya da arka plana al." :
-                    "Bekliyor: oyun önde değil.";
+                status.Text = reader.IsMinimized() ? "Bekliyor: oyun penceresi simge durumunda; büyüt ya da arka plana al." :
+                    "Bekliyor: oyun önde değil (Skiller sayfasında arka plan tuşları kapalı).";
                 return;
             }
             if (!snapshot.Player.Outside)
@@ -711,6 +725,11 @@ sealed partial class MemorySelectV3Form : Form
             }
             if (PressSupport(now))
                 return;
+            if (useRotation && rotation.Options.BuffOnly && operation == OperationMode.Hunt)
+            {
+                status.Text = "Yalnız buff / iyileştirme modu: saldırı kapalı.";
+                return;
+            }
             Monster target;
             if (operation == OperationMode.Grim)
             {
@@ -735,6 +754,8 @@ sealed partial class MemorySelectV3Form : Form
                 wanted = nextWanted;
                 watch.Reset();
                 attempts = 0;
+                if (useRotation)
+                    rotation.NewTarget();
             }
             if (target == null)
             {
@@ -819,7 +840,7 @@ sealed partial class MemorySelectV3Form : Form
                 }
                 bool valid = operation == OperationMode.Grim ? reader.ValidateAnyTarget(target) : reader.ValidateTarget(target,
                     center, (double)radius.Value);
-                if (!reader.IsForeground() || !valid)
+                if (!CommandsAllowed() || !valid)
                     return;
                 if (!sender.Send(target.Uid))
                 {
@@ -844,7 +865,7 @@ sealed partial class MemorySelectV3Form : Form
             }
             if (RunSendKeys && useRotation && now >= nextKey && heldScan == 0)
             {
-                ushort attackKey = rotation.NextAttack(now);
+                ushort attackKey = rotation.NextAttack(now, V2Rules.ClassName(target), MonstersNear());
                 if (attackKey != 0 && Press(attackKey))
                     nextKey = now + RunDelay;
             }
@@ -867,7 +888,7 @@ sealed partial class MemorySelectV3Form : Form
     void HoldGrim(string message)
     {
         ReleaseKey();
-        if (!grimWaiting && reader != null && sender != null && reader.IsForeground())
+        if (!grimWaiting && reader != null && sender != null && CommandsAllowed())
             sender.Move(snapshot.Player.Copy());
         grimWaiting = true;
         routeWalker.Reset();
@@ -883,13 +904,42 @@ sealed partial class MemorySelectV3Form : Form
         routeTarget = 0;
         if (!grimHolding)
         {
-            if (reader.IsForeground())
+            if (CommandsAllowed())
                 sender.Move(snapshot.Player.Copy());
             routeWalker.Reset();
             grim.Route.Clear();
             grim.Waypoint = 0;
             grimHolding = true;
             grimWaiting = true;
+        }
+        if (now < grimRetryAt)
+        {
+            status.Text = "Bu noktaya rota bulunamadı; kısa bekleyip sıradaki noktayı deneyecek.";
+            grim.Message = status.Text;
+            return;
+        }
+        if (graphPath != null)
+        {
+            if (graphIndex < graphPath.Count)
+            {
+                int hop = Math.Min(graphIndex + 3, graphPath.Count - 1);
+                if (WalkChecked(graphPath[hop], now, grim.IsRegion, "Zemin ağı rotası · " + (hop + 1) + " / " + graphPath.Count, false))
+                    graphIndex = hop + 1;
+            }
+            if (graphPath != null && graphIndex >= graphPath.Count)
+            {
+                graphPath = null;
+                grimFailures = 0;
+                if (grim.Rooms != null)
+                    grim.Rooms.Arrived();
+                else
+                {
+                    grim.Route.Clear();
+                    grim.Waypoint = 0;
+                }
+            }
+            grim.Message = status.Text;
+            return;
         }
         if (grim.Rooms != null)
         {
@@ -901,7 +951,10 @@ sealed partial class MemorySelectV3Form : Form
             }
             grimWaiting = false;
             if (WalkChecked(point, now, grim.IsRegion, grim.Rooms.Status, false))
+            {
                 grim.Rooms.Arrived();
+                grimFailures = 0;
+            }
             grim.Message = status.Text;
             return;
         }
@@ -940,12 +993,23 @@ sealed partial class MemorySelectV3Form : Form
         grim.EmptySince = -1;
         if (grim.Route.Count == 0)
         {
-            grim.Route = floor.RouteToUncovered(snapshot.Player, sender.NavigationProbe);
+            try
+            {
+                grim.Route = floor.RouteToUncovered(snapshot.Player, sender.NavigationProbe);
+            }
+            catch (InvalidOperationException e)
+            {
+                // Pushed off the checked floor (a knock-back, a fight): walk back to the nearest checked point instead of giving up.
+                Position nearest = floor.NearestCell(snapshot.Player);
+                grim.Route = nearest == null ? new List<Position>() : new List<Position> { nearest };
+                Log("Zemin ağına dönülüyor · " + e.Message);
+            }
             grim.Waypoint = 0;
             routeWalker.Reset();
             if (grim.Route.Count == 0)
             {
-                Stop("Kontrol edilmemiş alana bağlı yol bulunamadı; dungeon tamamlandı sayılmadı.");
+                HoldGrim("Kontrol edilmemiş alana bağlı yol bulunamadı · bulunduğu yerde bekliyor, yeniden denenecek.");
+                grimRetryAt = now + 3000;
                 return;
             }
         }
@@ -956,16 +1020,71 @@ sealed partial class MemorySelectV3Form : Form
         {
             grim.Route.Clear();
             grim.Waypoint = 0;
+            grimFailures = 0;
         }
         grim.Message = status.Text;
+    }
+
+    // A Grim walk found no route. First try the checked floor cells between here and the goal; if that fails too, drop this point
+    // (the sweep goes on with the next one) and pause briefly. The run is never stopped for this; it used to end here.
+    bool GrimWalkFailed(string reason, Position goal, long now)
+    {
+        grimFailures++;
+        Log("Grim yürüyüşü takıldı (" + grimFailures + "): " + reason);
+        try
+        {
+            if (CommandsAllowed() && sender != null)
+                sender.Move(snapshot.Player.Copy());
+        }
+        catch (IOException) { }
+        var floor = grim.Floor;
+        if (floor != null && graphPath == null && goal != null && grimFailures <= 4)
+        {
+            var path = floor.PathBetween(snapshot.Player, goal);
+            if (path.Count > 1)
+            {
+                graphPath = path;
+                graphIndex = 0;
+                status.Text = "Rota bulunamadı; doğrulanmış zemin ağı üzerinden gidiliyor.";
+                Log("Zemin ağı rotası · " + path.Count + " nokta");
+                return true;
+            }
+        }
+        graphPath = null;
+        if (grim.Rooms != null)
+            grim.Rooms.Arrived();
+        else
+        {
+            grim.Route.Clear();
+            grim.Waypoint = 0;
+            if (floor != null && goal != null)
+                floor.MarkCovered(goal);
+        }
+        grimRetryAt = now + (grimFailures >= 6 ? 6000 : 1200);
+        if (grimFailures >= 6)
+            grimFailures = 0;
+        status.Text = "Bu noktaya rota bulunamadı; sıradaki noktaya geçiliyor.";
+        return true;
     }
 
     bool Press(ushort key)
     {
         uint pid;
         uint thread = Native.GetWindowThreadProcessId(Native.GetForegroundWindow(), out pid);
-        if (reader == null || pid != reader.Process.Id)
+        if (reader == null)
             return false;
+        if (pid != reader.Process.Id)
+        {
+            // The game is behind other windows: with background keys on the key goes to its window as keyboard messages.
+            if (!backgroundKeys.Checked || reader.IsMinimized())
+                return false;
+            if (!PressBackground(key))
+            {
+                Stop("Arka plan tuşu gönderilemedi.");
+                return false;
+            }
+            return true;
+        }
         ushort scan = (ushort)Native.MapVirtualKeyEx(key, 0, Native.GetKeyboardLayout(thread));
         if (scan == 0 || !SendScan(scan, false))
         {
@@ -991,8 +1110,11 @@ sealed partial class MemorySelectV3Form : Form
         release.Stop();
         if (heldScan != 0)
         {
-            if (SendScan(heldScan, true))
+            if (heldBackground ? KeyMessage.Post(ClientWindow(), heldVk, heldScan, true) : SendScan(heldScan, true))
+            {
                 heldScan = 0;
+                heldBackground = false;
+            }
             else
             {
                 active = false;

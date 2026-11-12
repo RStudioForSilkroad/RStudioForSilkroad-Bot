@@ -7,7 +7,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Windows.Forms;
 
-class V3Checks
+partial class V3Checks
 {
     static readonly List<string> passed = new List<string>();
 
@@ -297,6 +297,7 @@ class V3Checks
         string scriptText = TradeRoutes.Script("Hotan", "Donwhang", hotanTrader, scriptSteps);
         A(scriptText.Contains("# feribot: GATE_NPC_KT_FERRY2") && scriptText.Contains("1 feribot geçişi"), "Script marks the ferry crossing");
         SkillChecks();
+        SkillEngineChecks();
         StartupChecks();
         PlannerChecks();
         ExplorerChecks();
@@ -668,7 +669,7 @@ class V3Checks
         var poll = (Timer)typeof(MemorySelectV3Form).GetField("poll", flags).GetValue(form);
         poll.Stop();
         var tabs = (TabControl)typeof(MemorySelectV3Form).GetField("tabs", flags).GetValue(form);
-        A(tabs.TabPages.Count == 8 && tabs.TabPages[4].Text == "Çift Hesap · Deneme" && tabs.TabPages[5].Text == "Nanzhang NPC" &&
+        A(tabs.TabPages.Count == 9 && tabs.TabPages[7].Text == "Skiller" && tabs.TabPages[4].Text == "Çift Hesap · Deneme" && tabs.TabPages[5].Text == "Nanzhang NPC" &&
             tabs.TabPages[1].Text == "Explorer Yerleri" && tabs.TabPages[2].Text == "Grim Crypt",
             "Four tabs render including dual-account trial");
         A(tabs.TabPages[6].Text == "Kervan Rotası", "Caravan page is part of the window");

@@ -52,6 +52,8 @@ static class Native
     internal static extern uint MapVirtualKeyEx(uint code, uint type, IntPtr layout);
     [DllImport("user32.dll")]
     internal static extern IntPtr GetKeyboardLayout(uint thread);
+    [DllImport("user32.dll")]
+    internal static extern bool PostMessage(IntPtr window, uint message, UIntPtr wParam, IntPtr lParam);
 
     [StructLayout(LayoutKind.Sequential)]
     internal struct INPUT
@@ -145,6 +147,9 @@ sealed class Snapshot
     public ulong Exp;
     public int Berserk = -1;
     public bool SpeedKnown, SpeedActive, InventoryKnown;
+    // Skill ids of the buffs the character carries right now; BuffsKnown is false when the list could not be read cleanly.
+    public bool BuffsKnown;
+    public HashSet<uint> Buffs = new HashSet<uint>();
     public int? MinDurability;
     public List<BagItem> Items = new List<BagItem>();
     public List<Monster> Monsters = new List<Monster>();
@@ -520,14 +525,19 @@ sealed class GameReader : IDisposable
                     uint type = U32(buff + 0x54), skill = U32(buff + 0x5c);
                     if ((type == 2 || type == 3) && V2Rules.SpeedSkills.Contains(skill))
                         snap.SpeedActive = true;
+                    if (skill != 0 && skill < 100000000)
+                        snap.Buffs.Add(skill);
                 }
                 node = U32(node);
             }
             snap.SpeedKnown = valid;
+            snap.BuffsKnown = valid;
         }
         catch (IOException)
         {
             snap.SpeedKnown = false;
+            snap.BuffsKnown = false;
+            snap.Buffs.Clear();
         }
         try
         {

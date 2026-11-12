@@ -193,6 +193,54 @@ sealed class FloorNavigation
         }
     }
 
+    internal Position NearestCell(Position p)
+    {
+        var cell = Cells.Values.OrderBy(c => PositionOf(c).Distance(p)).FirstOrDefault();
+        return cell == null ? null : PositionOf(cell);
+    }
+
+    // A goal the walker could not reach is not tried again at once: the cells around it count as visited.
+    internal void MarkCovered(Position p)
+    {
+        foreach (var c in Cells.Values)
+            if (PositionOf(c).Distance(p) <= Step * 1.5)
+                Covered.Add(c.Key);
+    }
+
+    // The way between two points along the checked floor cells (every step is an edge the game itself confirmed walkable).
+    // Empty when either end is not near the floor or the two lie in separate parts.
+    internal List<Position> PathBetween(Position from, Position to)
+    {
+        var none = new List<Position>();
+        if (!Done || Cells.Count < 2)
+            return none;
+        var a = Cells.Values.OrderBy(c => PositionOf(c).Distance(from)).First();
+        var b = Cells.Values.OrderBy(c => PositionOf(c).Distance(to)).First();
+        if (PositionOf(a).Distance(from) > Step * 4 || PositionOf(b).Distance(to) > Step * 4)
+            return none;
+        var parent = new Dictionary<string, string>();
+        var q = new Queue<string>();
+        parent[a.Key] = null;
+        q.Enqueue(a.Key);
+        while (q.Count > 0 && !parent.ContainsKey(b.Key))
+        {
+            string key = q.Dequeue();
+            foreach (string next in Edges[key])
+                if (!parent.ContainsKey(next))
+                {
+                    parent[next] = key;
+                    q.Enqueue(next);
+                }
+        }
+        if (!parent.ContainsKey(b.Key))
+            return none;
+        var path = new List<Position>();
+        for (string k = b.Key; k != null; k = parent[k])
+            path.Add(PositionOf(Cells[k]));
+        path.Reverse();
+        return path;
+    }
+
     internal bool FullyCovered
     {
         get { return Done && Cells.Count > 1 && Covered.Count == Cells.Count; }
