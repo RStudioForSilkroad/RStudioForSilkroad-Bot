@@ -201,7 +201,7 @@ sealed partial class MemorySelectV3Form
             throw new InvalidOperationException("Otomatik giriş için Solo Trial kaydı seç.");
         excludedRoadCells.Clear();
         useImportedRoad = true;
-        if (!caravanWalk && ((returnBeforeTravel.Checked && ExpeditionRules.Area(snapshot.Player) != ExpeditionRules.Area(d.Entrance())) ||
+        if (!caravanWalk && explorerRun == null && ((returnBeforeTravel.Checked && ExpeditionRules.Area(snapshot.Player) != ExpeditionRules.Area(d.Entrance())) ||
             WalkingTooFar(d)))
             expeditionPhase = 1;
         else
@@ -352,6 +352,8 @@ sealed partial class MemorySelectV3Form
             Stop("Dungeon seçimi kayboldu.");
             return;
         }
+        if (explorerRun != null && ExplorerTick(now))
+            return;
         if (grim.IsRegion(snapshot.Player))
         {
             if (d.Mode != "Solo Trial" && autoEnterGrim.Checked)
@@ -537,6 +539,11 @@ sealed partial class MemorySelectV3Form
         }
         if (d.Mode == "Serbest")
         {
+            if (explorerRun != null)
+            {
+                ExplorerArrived(now);
+                return;
+            }
             Stop("Hedefe ulaşıldı · " + d.Name);
             return;
         }

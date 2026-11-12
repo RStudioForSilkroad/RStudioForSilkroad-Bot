@@ -79,6 +79,42 @@ class V3Checks
         A(!none.HasAttack && none.NextAttack(0) == 0, "No attack lines, no attack key");
     }
 
+    static void ExplorerChecks()
+    {
+        var all = ExplorerSpots.All;
+        A(all.Count == 52 && all.Select(s => s.N).Distinct().Count() == 52 && all[0].N == 1 && all[51].N == 52, "52 Explorer spots, numbered 1-52");
+        A(all.All(s => ExplorerSpots.Areas.Contains(s.Area)), "Every Explorer spot belongs to a named area");
+        A(ExplorerSpots.Areas.All(a => all.Any(s => s.Area == a)), "Every named area has Explorer spots");
+        // The map was registered onto the game world map: spot 51 lies in the sector next to Jangan.
+        A(ExplorerSpots.Find(51).Point().Region == 24999, "Spot 51 is in the Jangan sector found from the client data");
+        var done = new HashSet<int> { 1, 2, 3, 10 };
+        var queue = ExplorerSpots.Queue(1, done, true);
+        A(queue.Count == 48 && queue[0] == 4 && queue[queue.Count - 1] == 52, "Queue skips found spots");
+        A(ExplorerSpots.Queue(50, done, false).SequenceEqual(new[] { 50, 51, 52 }) && ExplorerSpots.Queue(60, done, false).Count == 0,
+            "Queue starts at the chosen number");
+        // Walkable ground next to each marker: the map is approximate, the nearest point within 120 units is used.
+        int grounded = 0;
+        foreach (var s in all)
+        {
+            Position point;
+            float height;
+            if (ExplorerSpots.Ground(s, out point, out height))
+                grounded++;
+        }
+        A(grounded >= 40, "Most Explorer spots have walkable ground (" + grounded + " / 52)");
+        // Live NPC lookup: right model, not handled yet, nearest to the spot.
+        var spot = all[10];
+        var snap = new Snapshot();
+        snap.Npcs.Add(new WorldNpc { Uid = 1, Model = 60023, Position = V2Rules.Center(spot.X + 200, spot.Y, 0) });
+        snap.Npcs.Add(new WorldNpc { Uid = 2, Model = 60023, Position = V2Rules.Center(spot.X + 40, spot.Y, 0) });
+        snap.Npcs.Add(new WorldNpc { Uid = 3, Model = 11111, Position = V2Rules.Center(spot.X + 5, spot.Y, 0) });
+        A(ExplorerSpots.FindNpc(snap, 60023, spot.Point(), 350, new HashSet<uint>()).Uid == 2, "Nearest Explorer NPC of the right model is found");
+        A(ExplorerSpots.FindNpc(snap, 60023, spot.Point(), 350, new HashSet<uint> { 2 }).Uid == 1, "A handled NPC is skipped");
+        A(ExplorerSpots.FindNpc(snap, 60023, spot.Point(), 100, new HashSet<uint> { 2 }) == null, "An NPC outside the radius is ignored");
+        A(new V3Settings().ExplorerModel == 60023 && new V3Settings().ExplorerSkipDone && new V3Settings().ExplorerDone.Count == 0,
+            "Explorer settings start with the known model and nothing found");
+    }
+
     static void CaravanChecks()
     {
         // Trader NPC store: save, reload, damaged file.
@@ -130,6 +166,7 @@ class V3Checks
         }
         A(!RoadMesh.WalkOnly, "Road-only flag is released after planning");
         SkillChecks();
+        ExplorerChecks();
         // Unique alert: once per monster, again after it left and came back; ordinary monsters are ignored.
         var alert = new UniqueAlert();
         var boss = new Monster { Uid = 7, Name = "Tiger Girl", Rank = 3, Alive = true };
@@ -503,7 +540,11 @@ class V3Checks
             "Four tabs render including dual-account trial");
         A(tabs.TabPages[6].Text == "Kervan Rotası", "Caravan page is part of the window");
         CaravanChecks();
-        var dg = (DataGridView)typeof(MemorySelectV3Form).GetField("dungeonGrid", flags).GetValue(form);
+        var explorerGrid = (DataGridView)typeof(MemorySelectV3Form).GetField("explorerGrid", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+        A(explorerGrid.Rows.Count == 52 && Convert.ToInt32(explorerGrid.Rows[51].Cells["N"].Value) == 52, "Explorer page lists the 52 spots");
+        var explorerArea = (ComboBox)typeof(MemorySelectV3Form).GetField("explorerArea", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+        A(explorerArea.Items.Count == 8, "Explorer page offers the whole map and seven areas");
+        var dg =(DataGridView)typeof(MemorySelectV3Form).GetField("dungeonGrid", flags).GetValue(form);
         A(dg.Rows.Count == 18, "Solo Trial selected by default");
         foreach (CheckBox check in (List<CheckBox>)typeof(MemorySelectV3Form).GetField("grimModes", flags).GetValue(form))
             check.Checked = true;

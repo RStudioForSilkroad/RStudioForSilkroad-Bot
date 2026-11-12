@@ -298,6 +298,11 @@ sealed partial class MemorySelectV3Form : Form
             (returning || operation == OperationMode.Travel || operation == OperationMode.Grim);
         routeWalker.Reset();
         caravanWalk = false;
+        if (explorerRun != null && !explorerAdvancing)
+        {
+            explorerRun = null;
+            RefreshExplorerUi();
+        }
         grim.Stop();
         recovery.Stop();
         active = false;
@@ -546,6 +551,11 @@ sealed partial class MemorySelectV3Form : Form
             dungeonRadar.Run = grim;
             dungeonRadar.Invalidate();
             RecordPath();
+            if (explorerMap.Visible)
+            {
+                explorerMap.Player = snapshot.Player;
+                explorerMap.Invalidate();
+            }
             if (worldMap.Visible)
             {
                 worldMap.Player = snapshot.Player;

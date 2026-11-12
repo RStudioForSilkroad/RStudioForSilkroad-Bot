@@ -18,6 +18,7 @@ function Get-ResourceMap {
         'data/learned-defaults.txt'                   = 'learned-defaults.txt'
         'data/transport-network.json'                 = 'transport-network.json'
         'data/return-scrolls.json'                    = 'return-scrolls.json'
+        'data/explorer-spots.json'                    = 'explorer-spots.json'
         'data/Nanzhang/Nanzhang-NPC-Haritasi.jpg'     = 'nanzhang-map.jpg'
         'data/Nanzhang/Nanzhang-Harita-Verisi.json'   = 'nanzhang-data.json'
     }

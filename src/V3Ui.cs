@@ -219,11 +219,7 @@ sealed partial class MemorySelectV3Form : Form
         BuildHunt();
         BuildUpdateControls();
         explorerView.Dock = DockStyle.Fill;
-        var explorerFrame = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
-        explorerFrame.Controls.Add(explorerView);
-        var explorerHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(Ui.Pad, Ui.Pad, Ui.Pad, Ui.Pad) };
-        explorerHost.Controls.Add(explorerFrame);
-        explorerTab.Controls.Add(explorerHost);
+        BuildExplorer(explorerTab, explorerView);
         BuildGrim(cryptTab);
         var workspace = new Panel { Dock = DockStyle.Fill };
         workspace.Controls.Add(tabs);
@@ -250,7 +246,10 @@ sealed partial class MemorySelectV3Form : Form
             status.Left = stop.Right + 20;
             status.Width = Math.Max(100, footer.ClientSize.Width - status.Left - Ui.Pad);
             if (tabs.SelectedIndex == 1)
+            {
                 explorerView.Fit();
+                explorerMap.Refit();
+            }
             if (tabs.SelectedIndex == 2)
                 dungeonView.Fit();
         };
@@ -801,6 +800,19 @@ sealed partial class MemorySelectV3Form : Form
         if (settings.Skills != null && settings.Skills.Count > 0)
             LoadSkillRows(settings.Skills);
         autoEnterGrim.Checked = settings.AutoEnterGrim;
+        if (settings.ExplorerDone == null)
+            settings.ExplorerDone = new List<int>();
+        explorerSyncing = true;
+        try
+        {
+            explorerSkipDone.Checked = settings.ExplorerSkipDone;
+            SetValue(explorerModel, settings.ExplorerModel);
+        }
+        finally
+        {
+            explorerSyncing = false;
+        }
+        RefreshExplorerUi();
         SetValue(xBox, settings.X);
         SetValue(yBox, settings.Y);
         SetValue(radius, settings.Range);
@@ -840,6 +852,8 @@ sealed partial class MemorySelectV3Form : Form
         settings.SkillList = skillListBox.Checked;
         settings.Skills = SkillSlotsFromGrid();
         settings.AutoEnterGrim = autoEnterGrim.Checked;
+        settings.ExplorerSkipDone = explorerSkipDone.Checked;
+        settings.ExplorerModel = (int)explorerModel.Value;
         settings.VisitedDungeons = visitedDungeons.OrderBy(id => id).ToList();
         settings.Mobs = selectedMobs.OrderBy(x => x).ToList();
         settings.X = (double)xBox.Value;

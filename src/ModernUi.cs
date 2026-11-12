@@ -91,7 +91,7 @@ sealed partial class MemorySelectV3Form
         Action<Control, Color> paint = null;
         paint = (c, bg) =>
         {
-            if (c is MapViewer || c is DungeonRadar || c is StatPanel || c is TabStrip)
+            if (c is MapViewer || c is ExplorerMapView || c is DungeonRadar || c is StatPanel || c is TabStrip)
             {
                 c.Invalidate();
                 return;

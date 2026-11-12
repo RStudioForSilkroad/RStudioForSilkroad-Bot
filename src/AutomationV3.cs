@@ -422,6 +422,9 @@ sealed class V3Settings
 {
     public bool ReturnBeforeTravel, TravelMount, AutoEnterGrim, UniqueAlert, SkillList;
     public List<SkillSlot> Skills = new List<SkillSlot>();
+    public List<int> ExplorerDone = new List<int>();
+    public bool ExplorerSkipDone = true;
+    public int ExplorerModel = ExplorerSpots.DefaultModel;
     public List<string> DungeonQueue = new List<string>();
     public bool QueueReturnScroll = true;
     public bool HideWhatsNew;

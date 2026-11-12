@@ -16,8 +16,11 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.8.0.0", Title = "Skill listesi ve Nanzhang şehir tanıma",
-        Items = new[] { "Av / Ayarlar sayfasında yeni Skill listesi: her satır bir tuş ve türü (Saldırı, Buff, İyileştirme, Mana). Saldırılar sırayla basılır, buff süresi dolunca basılır, iyileştirme ve mana HP / MP yüzdesi sınırın altına inince basılır. F1-F12 tuşları da kullanılabilir.",
+    internal static readonly Entry[] All = { new Entry { Version = "3.8.0.0", Title = "Explorer 1 → 52, skill listesi ve Nanzhang şehir tanıma",
+        Items = new[] { "Explorer Yerleri sayfası yenilendi: 52 nokta listesi, bölge bölge yakınlaştırılan harita (Constantinople, Samarkand, Roc, Hotan, Donwhang, Jangan, Nanzhang) ve karakterin konumu.",
+        "1 → 52 otomatik: bot sırayla her noktaya yürür, Explorer NPC’yi (Explorer Gisaeng Ahjin) oyunun nesne listesinde canlı bulur, bir kez tıklar ve seçim doğrulanınca sıradakine geçer. Bulunanlar kaydedilir, “Bulunanları atla” ile kaldığı yerden devam edilir.",
+        "Haritadaki konumlar yaklaşıktır: NPC yakına gelince canlı bulunur; görünmezse noktanın çevresinde iki halka dolaşılır, yine yoksa nokta “Bulunamadı” olur ve sıra devam eder. NPC modeli sayfadan değiştirilebilir.",
+        "Av / Ayarlar sayfasında yeni Skill listesi: her satır bir tuş ve türü (Saldırı, Buff, İyileştirme, Mana). Saldırılar sırayla basılır, buff süresi dolunca basılır, iyileştirme ve mana HP / MP yüzdesi sınırın altına inince basılır. F1-F12 tuşları da kullanılabilir.",
         "Skill listesi kapalıysa eski Tuşlar kutusu aynen çalışır.",
         "Nanzhang'ın altı bölgesi artık şehir olarak tanınır: Nanzhang'da ölünce şehre dönüş doğrulaması takılmaz, yolculuk planı şehir içinden başlar.",
         "Oyun arşivlerinden (.ne) NPC konumları, teleport ve canavar tanımları çıkarıldı; çıkarma aracı tools/nav-export içindedir." } },
