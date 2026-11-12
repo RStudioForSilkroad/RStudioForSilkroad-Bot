@@ -32,6 +32,53 @@ class V3Checks
         }
     }
 
+    static void SkillChecks()
+    {
+        A(SkillRotation.ParseKey("1") == '1' && SkillRotation.ParseKey("a") == 'A' && SkillRotation.ParseKey("F1") == 0x70 &&
+            SkillRotation.ParseKey("f12") == 0x7B, "Skill keys: digits, letters and F1-F12");
+        A(SkillRotation.ParseKey("") == 0 && SkillRotation.ParseKey("F13") == 0 && SkillRotation.ParseKey("12") == 0 &&
+            SkillRotation.ParseKey("ab") == 0, "Unusable skill keys are refused");
+        var slots = new List<SkillSlot>
+        {
+            new SkillSlot { Key = "1", Kind = SkillRotation.Attack_ },
+            new SkillSlot { Key = "2", Kind = SkillRotation.Attack_, Seconds = 10 },
+            new SkillSlot { Key = "7", Kind = SkillRotation.Heal_, Seconds = 3, Percent = 50 },
+            new SkillSlot { Key = "8", Kind = SkillRotation.Mana_, Seconds = 3, Percent = 40 },
+            new SkillSlot { Key = "9", Kind = SkillRotation.Buff_, Seconds = 120 },
+            new SkillSlot { On = false, Key = "0", Kind = SkillRotation.Attack_ }
+        };
+        A(SkillRotation.Validate(slots) == null, "A normal skill list is valid");
+        slots.Add(new SkillSlot { Key = "zz" });
+        A(SkillRotation.Validate(slots) != null, "A bad key is reported");
+        slots.RemoveAt(slots.Count - 1);
+        slots.Add(new SkillSlot { Key = "5", Kind = SkillRotation.Heal_, Percent = 0 });
+        A(SkillRotation.Validate(slots) != null, "A heal percent of 0 is reported");
+        slots.RemoveAt(slots.Count - 1);
+        var rot = new SkillRotation();
+        rot.Load(slots);
+        A(rot.HasAttack && rot.Keys().Count == 5, "Disabled lines are ignored");
+        // Buff first (healthy, full mana), repeats only after its interval.
+        A(rot.Support(0, 100, 100, true) == '9', "A due buff is pressed without a target");
+        A(rot.Support(1000, 100, 100, true) == 0 && rot.Support(119000, 100, 100, true) == 0, "A buff waits for its interval");
+        A(rot.Support(120000, 100, 100, true) == '9', "A buff repeats after its interval");
+        // Heal beats mana beats buff, each with its cooldown.
+        A(rot.Support(240000, 30, 10, true) == '7', "Low HP presses the heal first");
+        A(rot.Support(240100, 30, 10, true) == '8', "Heal on cooldown lets the mana skill go");
+        A(rot.Support(240200, 30, 10, true) == '9', "Then the due buff");
+        A(rot.Support(240300, 30, 10, true) == 0, "Everything on cooldown presses nothing");
+        A(rot.Support(250000, 90, 90, true) == 0, "Healthy and full of mana presses no heal or mana");
+        A(rot.Support(260000, 10, 10, false) == 0, "Unknown stats never trigger a heal");
+        // Attack: in turn, a skill with its own cooldown is skipped until ready.
+        var attacks = new SkillRotation();
+        attacks.Load(slots);
+        A(attacks.NextAttack(0) == '1' && attacks.NextAttack(100) == '2', "Attack skills go in turn");
+        A(attacks.NextAttack(200) == '1' && attacks.NextAttack(300) == '1', "A skill on cooldown is skipped");
+        A(attacks.NextAttack(10100) == '2', "The skill is used again once its cooldown is over");
+        var none = new SkillRotation();
+        none.Load(new[] { new SkillSlot { Key = "9", Kind = SkillRotation.Buff_ } });
+        A(!none.HasAttack && none.NextAttack(0) == 0, "No attack lines, no attack key");
+    }
+
     static void CaravanChecks()
     {
         // Trader NPC store: save, reload, damaged file.
@@ -52,6 +99,10 @@ class V3Checks
         {
             try { File.Delete(file); } catch { }
         }
+        // Nanzhang counts as a town (death recovery and trip planning wait for a town); all six city sectors are listed.
+        A(V3Data.Town(V2Rules.Center(5643.3, -1885.3, 462f)) == "Nanzhang" && V3Data.Town(V2Rules.Center(5938.6, -1706.2, 462f)) == "Nanzhang" &&
+            V3Data.Town(V2Rules.Center(6100.0, -1541.0, 462f)) == "Nanzhang", "Nanzhang city sectors are recognised as a town");
+        A(TradeRoutes.TownKey(V2Rules.Center(5643.3, -1885.3, 462f)) == null, "Nanzhang is not a caravan town");
         // Routes: the four requested directions exist.
         A(TradeRoutes.Routes.Length == 4 && TradeRoutes.Routes.Any(r => r[0] == "Hotan" && r[1] == "Jangan") &&
             TradeRoutes.Routes.Any(r => r[0] == "Jangan" && r[1] == "Hotan") &&
@@ -78,6 +129,7 @@ class V3Checks
             // Not connected by road in the map data: refusing is the correct answer for trade goods.
         }
         A(!RoadMesh.WalkOnly, "Road-only flag is released after planning");
+        SkillChecks();
         // Unique alert: once per monster, again after it left and came back; ordinary monsters are ignored.
         var alert = new UniqueAlert();
         var boss = new Monster { Uid = 7, Name = "Tiger Girl", Rank = 3, Alive = true };

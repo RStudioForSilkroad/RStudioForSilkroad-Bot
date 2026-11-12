@@ -234,14 +234,29 @@ sealed partial class MemorySelectV3Form : Form
         if (mode == OperationMode.Hunt && (V3Data.IsCrypt(snapshot.Player) || V3Data.IsCrypt(center)))
             throw new InvalidOperationException("Bu alan için Grim Crypt sekmesini kullan.");
         var list = new List<ushort>();
-        foreach (string t in RunKeys.ToUpperInvariant().Split(new[] { ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+        useRotation = skillListBox.Checked;
+        if (useRotation)
         {
-            if (t.Length != 1 || !((t[0] >= '0' && t[0] <= '9') || (t[0] >= 'A' && t[0] <= 'Z')))
-                throw new InvalidOperationException("Tuşlar: A-Z, 0-9; boşlukla ayır.");
-            list.Add(t[0]);
+            var slots = SkillSlotsFromGrid();
+            string problem = SkillRotation.Validate(slots);
+            if (problem != null)
+                throw new InvalidOperationException(problem);
+            rotation.Load(slots);
+            list.AddRange(rotation.Keys());
+            if (mode != OperationMode.Travel && RunSendKeys && !rotation.HasAttack)
+                throw new InvalidOperationException("Skill listesinde en az bir açık Saldırı skill'i olmalı.");
         }
-        if (mode != OperationMode.Travel && RunSendKeys && list.Count == 0)
-            throw new InvalidOperationException("Saldırı tuşu seç.");
+        else
+        {
+            foreach (string t in RunKeys.ToUpperInvariant().Split(new[] { ' ', ',', ';' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                if (t.Length != 1 || !((t[0] >= '0' && t[0] <= '9') || (t[0] >= 'A' && t[0] <= 'Z')))
+                    throw new InvalidOperationException("Tuşlar: A-Z, 0-9; boşlukla ayır.");
+                list.Add(t[0]);
+            }
+            if (mode != OperationMode.Travel && RunSendKeys && list.Count == 0)
+                throw new InvalidOperationException("Saldırı tuşu seç.");
+        }
         if (mode == OperationMode.Grim && !RunSendKeys)
             throw new InvalidOperationException("Av / Ayarlar içindeki Hedef doğrulanınca tuşlara bas seçeneğini aç.");
         if (HotkeyPolicy.Conflicts(shortcutKey, shortcutMods, list, RunZerk))
@@ -650,6 +665,8 @@ sealed partial class MemorySelectV3Form : Form
                 ExpeditionTick(now);
                 return;
             }
+            if (PressSupport(now))
+                return;
             Monster target;
             if (operation == OperationMode.Grim)
             {
@@ -781,7 +798,13 @@ sealed partial class MemorySelectV3Form : Form
                 }
                 return;
             }
-            if (RunSendKeys && parsedKeys.Length > 0 && now >= nextKey && heldScan == 0)
+            if (RunSendKeys && useRotation && now >= nextKey && heldScan == 0)
+            {
+                ushort attackKey = rotation.NextAttack(now);
+                if (attackKey != 0 && Press(attackKey))
+                    nextKey = now + RunDelay;
+            }
+            else if (RunSendKeys && parsedKeys.Length > 0 && now >= nextKey && heldScan == 0)
             {
                 if (Press(parsedKeys[keyIndex]))
                 {

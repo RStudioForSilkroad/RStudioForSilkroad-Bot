@@ -184,7 +184,7 @@ sealed partial class MemorySelectV3Form
     void PrepareExpedition(DungeonLocation d)
     {
         bool free = d.Mode == "Serbest";
-        if (!free && autoEnterGrim.Checked && (!RunSendKeys || string.IsNullOrWhiteSpace(RunKeys)))
+        if (!free && autoEnterGrim.Checked && (!RunSendKeys || (!skillListBox.Checked && string.IsNullOrWhiteSpace(RunKeys))))
             throw new InvalidOperationException("Otomatik dungeon için saldırı tuşlarını ve Hedef doğrulanınca tuşlara bas seçeneğini ayarla.");
         if (!free)
             completionNotice.Begin(reader.Process.Id);

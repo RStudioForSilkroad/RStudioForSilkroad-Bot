@@ -642,6 +642,7 @@ sealed partial class MemorySelectV3Form : Form
         row = Line(card);
         ConfigureCheck(goHome, "Hedef yoksa / alan dışındaysa merkeze dön", true, 0);
         row.Controls.Add(goHome);
+        BuildSkillCard();
 
         // Right column: control, maintenance, travel
         card = Card("Kontrol", 1);
@@ -796,6 +797,9 @@ sealed partial class MemorySelectV3Form : Form
         returnBeforeTravel.Checked = settings.ReturnBeforeTravel;
         travelMount.Checked = settings.TravelMount;
         uniqueAlertBox.Checked = settings.UniqueAlert;
+        skillListBox.Checked = settings.SkillList;
+        if (settings.Skills != null && settings.Skills.Count > 0)
+            LoadSkillRows(settings.Skills);
         autoEnterGrim.Checked = settings.AutoEnterGrim;
         SetValue(xBox, settings.X);
         SetValue(yBox, settings.Y);
@@ -833,6 +837,8 @@ sealed partial class MemorySelectV3Form : Form
         settings.ReturnBeforeTravel = returnBeforeTravel.Checked;
         settings.TravelMount = travelMount.Checked;
         settings.UniqueAlert = uniqueAlertBox.Checked;
+        settings.SkillList = skillListBox.Checked;
+        settings.Skills = SkillSlotsFromGrid();
         settings.AutoEnterGrim = autoEnterGrim.Checked;
         settings.VisitedDungeons = visitedDungeons.OrderBy(id => id).ToList();
         settings.Mobs = selectedMobs.OrderBy(x => x).ToList();
