@@ -837,6 +837,8 @@ sealed partial class MemorySelectV3Form : Form
         {
             explorerSkipDone.Checked = settings.ExplorerSkipDone;
             SetValue(explorerModel, settings.ExplorerModel);
+            explorerTalk.Checked = settings.ExplorerTalk;
+            SetValue(explorerOption, settings.ExplorerTalkOption < 1 ? 1 : settings.ExplorerTalkOption);
         }
         finally
         {
@@ -885,6 +887,8 @@ sealed partial class MemorySelectV3Form : Form
         settings.AutoEnterGrim = autoEnterGrim.Checked;
         settings.ExplorerSkipDone = explorerSkipDone.Checked;
         settings.ExplorerModel = (int)explorerModel.Value;
+        settings.ExplorerTalk = explorerTalk.Checked;
+        settings.ExplorerTalkOption = (int)explorerOption.Value;
         settings.VisitedDungeons = visitedDungeons.OrderBy(id => id).ToList();
         settings.Mobs = selectedMobs.OrderBy(x => x).ToList();
         settings.X = (double)xBox.Value;
@@ -914,7 +918,7 @@ sealed partial class MemorySelectV3Form : Form
     {
         var page = outerPage;
         page.AutoScroll = true;
-        page.AutoScrollMinSize = new Size(960, 560);
+        page.AutoScrollMinSize = new Size(960, 720);
         // Row 1: difficulty chips on the left, the walk button on the right.
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(Ui.Pad, 12, Ui.Pad, 2) };
@@ -940,10 +944,14 @@ sealed partial class MemorySelectV3Form : Form
         var grimNote = new Label { Text = "Beta · 72/72 canlı bitiriş testi henüz yapılmadı", AutoSize = true, Tag = "warn",
             Margin = new Padding(0, 7, 0, 0) };
         options.Controls.Add(grimNote);
-        var split = new SplitContainer { Size = new Size(1200, 660), Dock = DockStyle.Fill, Orientation = Orientation.Vertical,
-            FixedPanel = FixedPanel.Panel1, SplitterDistance = 600, SplitterWidth = 1 };
-        split.Panel1.Padding = new Padding(Ui.Pad, 0, 8, Ui.Pad);
-        split.Panel2.Padding = new Padding(8, 0, Ui.Pad, Ui.Pad);
+        // Two separate parts, one above the other: the dungeon list with the run order on top, the three views (picture, live inside
+        // view, world map) across the whole width below.
+        var split = new SplitContainer { Size = new Size(1200, 700), Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
+            FixedPanel = FixedPanel.Panel1, SplitterDistance = 310, SplitterWidth = 6 };
+        split.Panel1MinSize = 220;
+        split.Panel2MinSize = 260;
+        split.Panel1.Padding = new Padding(Ui.Pad, 0, Ui.Pad, 4);
+        split.Panel2.Padding = new Padding(Ui.Pad, 4, Ui.Pad, Ui.Pad);
         dungeonGrid.Dock = DockStyle.Fill;
         dungeonGrid.ReadOnly = false;
         dungeonGrid.AllowUserToAddRows = false;

@@ -16,6 +16,7 @@ partial class V3Checks
 
     static void SkillEngineChecks()
     {
+        LearnedSkillChecks();
         // ---- buffs follow the character's real buff list ----
         var buff = new SkillRotation();
         buff.Load(new[] { new SkillSlot { Key = "5", Kind = SkillRotation.Buff_, SkillId = 4001 } });
@@ -190,5 +191,170 @@ partial class V3Checks
             A(floor.Covered.Count > 0 && floor.Covered.Count < floor.Cells.Count, "A skipped goal marks only the cells around it as visited");
             A(floor.NearestCell(far) != null && floor.NearestCell(far).Distance(far) < 1, "The nearest checked floor point is found");
         }
+    }
+
+    sealed class FakeMemory
+    {
+        internal readonly uint Base;
+        internal readonly byte[] Data;
+
+        internal FakeMemory(uint start, int size)
+        {
+            Base = start;
+            Data = new byte[size];
+        }
+
+        internal void Put(uint address, uint value)
+        {
+            BitConverter.GetBytes(value).CopyTo(Data, (int)(address - Base));
+        }
+
+        internal byte[] Read(uint address, int size)
+        {
+            if (address < Base || address + size > Base + Data.Length)
+                throw new System.IO.IOException("outside");
+            var b = new byte[size];
+            Array.Copy(Data, (int)(address - Base), b, 0, size);
+            return b;
+        }
+    }
+
+    // A red-black-tree-shaped map in fake memory: header (left = first, parent = root, right = last), nodes of 32 bytes, key at +12.
+    static void BuildTree(FakeMemory m, uint header, uint[] keys)
+    {
+        var sorted = keys.OrderBy(k => k).ToArray();
+        uint next = header + 32;
+        Func<int, int, uint, uint> make = null;
+        make = (lo, hi, parent) =>
+        {
+            if (lo > hi)
+                return header;
+            int mid = (lo + hi) / 2;
+            uint node = next;
+            next += 32;
+            m.Put(node + 4, parent);
+            m.Put(node + 12, sorted[mid]);
+            m.Put(node, make(lo, mid - 1, node));
+            m.Put(node + 8, make(mid + 1, hi, node));
+            return node;
+        };
+        uint root = make(0, sorted.Length - 1, header);
+        m.Put(header + 4, root);
+        uint first = root, last = root;
+        while (BitConverter.ToUInt32(m.Read(first, 4), 0) != header)
+            first = BitConverter.ToUInt32(m.Read(first, 4), 0);
+        while (BitConverter.ToUInt32(m.Read(last + 8, 4), 0) != header)
+            last = BitConverter.ToUInt32(m.Read(last + 8, 4), 0);
+        m.Put(header, first);
+        m.Put(header + 8, last);
+    }
+
+    static void LearnedSkillChecks()
+    {
+        // ---- the game's skill table ----
+        var names = new List<string>();
+        var meta = new List<string>();
+        for (uint id = 100; id < 160; id++)
+        {
+            names.Add(id + "\tSkill " + id + "\r");
+            var cells = new string[28];
+            for (int i = 0; i < cells.Length; i++)
+                cells[i] = "0";
+            cells[0] = id.ToString();
+            cells[5] = id % 2 == 0 ? "60000" : "2000";
+            cells[11] = "20";
+            cells[23] = (id + 1000).ToString();
+            cells[24] = "3";
+            meta.Add(string.Join("\t", cells));
+        }
+        names.Add("9\tStrike Smash\r");
+        SkillCatalog.Parse(names, meta);
+        A(SkillCatalog.Loaded && SkillCatalog.Count == 61 && SkillCatalog.IsSkill(120) && !SkillCatalog.IsSkill(99) && SkillCatalog.NameOf(120) == "Skill 120",
+            "The skill table is read: ids, names, and which ids are skills");
+        A(SkillCatalog.Find(120).Family == 1120 && SkillCatalog.Find(120).Level == 3 && SkillCatalog.Find(120).ReqLevel == 20 && SkillCatalog.Find(120).Time == 60000,
+            "Family, level, required level and time come from the table");
+        A(SkillCatalog.Search("strike", 10).Count == 1 && SkillCatalog.Search("s", 10).Count == 0 && SkillCatalog.Search("Skill 12", 100).Count == 10,
+            "The skill table is searched by name (at least two letters)");
+        A(SkillCatalog.GuessKind(SkillCatalog.Find(120)) == SkillRotation.Buff_ && SkillCatalog.GuessKind(SkillCatalog.Find(121)) == SkillRotation.Attack_,
+            "A long time column suggests a buff");
+
+        // ---- the learned-skill tree is found by shape, with no fixed address ----
+        var mem = new FakeMemory(0x02000000, 0x8000);
+        var real = new uint[] { 101, 103, 105, 110, 112, 118, 125, 131, 140, 150 };
+        BuildTree(mem, 0x02000000, real);
+        BuildTree(mem, 0x02002000, new uint[] { 102, 104, 106, 107, 108, 109 });
+        BuildTree(mem, 0x02004000, new uint[] { 101, 120 });
+        // a decoy that is not a tree: a few skill ids in a row
+        for (uint i = 0; i < 8; i++)
+            mem.Put(0x02006000 + i * 4, 120 + i);
+        var candidates = SkillScan.Candidates(mem.Data, mem.Data.Length, mem.Base, SkillCatalog.ValidTable);
+        A(candidates.Count >= real.Length + 6, "Nodes that look like skill-id tree nodes are found in a memory buffer");
+        string report;
+        var seeds = new uint[] { 105, 112, 150 };
+        var chosen = SkillScan.Choose(mem.Read, candidates, seeds, SkillCatalog.IsSkill, SkillCatalog.FamilyOf, 5, out report);
+        A(chosen != null && chosen.Header == 0x02000000 && chosen.Keys.OrderBy(k => k).SequenceEqual(real),
+            "The tree that holds the character's known skills is chosen and read completely");
+        var none = SkillScan.Choose(mem.Read, candidates, new uint[] { 159 }, SkillCatalog.IsSkill, SkillCatalog.FamilyOf, 5, out report);
+        A(none == null, "No tree is chosen when none of them holds a known skill");
+        A(SkillScan.FindHeader(mem.Read, 0x02000000 + 32) == 0x02000000, "From any node the header of its tree is found");
+        A(SkillScan.FindHeader(mem.Read, 0x02006000) == 0, "Skill ids in a row are not mistaken for a tree");
+        SkillCatalog.Clear();
+        A(!SkillCatalog.Loaded && !SkillCatalog.IsSkill(120), "The table can be cleared");
+
+        // ---- using a skill by id ----
+        byte[] cast = TargetSender.CastPayload(10258, 0x1234);
+        A(cast.Length == 11 && cast[0] == 1 && cast[1] == 4 && BitConverter.ToUInt32(cast, 2) == 10258 && cast[6] == 1 && BitConverter.ToUInt32(cast, 7) == 0x1234 &&
+            TargetSender.ValidCast(cast), "A cast on a target is 01 04, skill id, 01, target id");
+        byte[] self = TargetSender.CastPayload(11738, 0);
+        A(self.Length == 7 && self[6] == 0 && TargetSender.ValidCast(self), "A cast on oneself has no target");
+        A(!TargetSender.ValidCast(TargetSender.CastPayload(0, 5)) && !TargetSender.ValidCast(new byte[] { 1, 5, 1, 0, 0, 0, 0 }) &&
+            !TargetSender.ValidCast(new byte[] { 1, 4, 1, 0, 0, 0, 1 }) && !TargetSender.ValidCast(null), "Anything else is not a valid cast");
+        A(TargetSender.BuildPacket(0x10000000, 0x2000, 0x7074, cast)[64] == 1, "The cast packet is built through the allowed list");
+        bool refused = false;
+        try
+        {
+            TargetSender.BuildPacket(0x10000000, 0x2000, 0x7074, new byte[] { 1, 4, 0, 0, 0, 0, 0 });
+        }
+        catch (ArgumentException)
+        {
+            refused = true;
+        }
+        A(refused, "A cast without a skill id is refused");
+
+        // ---- talking to an NPC ----
+        byte[] talk = new byte[] { 0x78, 0x56, 0x34, 0x12, 1 };
+        A(TargetSender.BuildPacket(0x10000000, 0x2000, 0x7046, talk)[68] == 1, "The NPC talk packet (NPC id, option 1) is built");
+        foreach (byte option in new byte[] { 0, 10 })
+        {
+            refused = false;
+            try
+            {
+                TargetSender.BuildPacket(0x10000000, 0x2000, 0x7046, new byte[] { 1, 2, 3, 4, option });
+            }
+            catch (ArgumentException)
+            {
+                refused = true;
+            }
+            A(refused, "NPC talk option " + option + " is refused");
+        }
+        A(new V3Settings().ExplorerTalk && new V3Settings().ExplorerTalkOption == 1, "Explorer talks to the NPC by default, option 1");
+
+        // ---- lines with an id and no key ----
+        var ids = new SkillRotation();
+        ids.Load(new[]
+        {
+            new SkillSlot { Key = "", Kind = SkillRotation.Buff_, SkillId = 11738, Name = "Healing Cycle" },
+            new SkillSlot { Key = "", Kind = SkillRotation.Attack_, SkillId = 10258 },
+            new SkillSlot { Key = "2", Kind = SkillRotation.Attack_, SkillId = 10129 }
+        });
+        A(ids.HasIdOnly && ids.Keys().SequenceEqual(new ushort[] { '2' }), "A line with an id and no key is used by id and adds no key to the key list");
+        ushort first = ids.Support(0, Ctx());
+        A(first == SkillRotation.IdOnly && ids.LastSkillId == 11738 && ids.LastKind == SkillRotation.Buff_, "A buff line without a key reports its skill id");
+        A(ids.Support(1000, Ctx(buffs: new uint[] { 11738 })) == 0, "An id-only buff that is already on is left alone");
+        ushort a1 = ids.NextAttack(0), a2 = ids.NextAttack(1);
+        A(a1 == SkillRotation.IdOnly && ids.LastSkillId != 0 && a2 == '2' && ids.LastSkillId == 10129, "Attack lines alternate between an id line and a key line");
+        A(SkillRotation.Validate(new[] { new SkillSlot { Key = "", SkillId = 10258 } }) == null, "A line with an id and no key is valid");
+        A(SkillRotation.Validate(new[] { new SkillSlot { Key = "", SkillId = 0 } }) != null, "A line with neither a key nor an id is refused");
+        A(SkillRotation.Validate(new[] { new SkillSlot { Key = "??", SkillId = 5 } }) != null, "A wrong key is still refused when an id is given");
     }
 }

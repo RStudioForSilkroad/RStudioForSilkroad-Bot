@@ -99,6 +99,7 @@ sealed partial class MemorySelectV3Form
         row.Controls.Add(templateBox);
         row.Controls.Add(Btn("Şablonu listeye ekle", AddTemplate, 190));
 
+        BuildLearnedSection(content);
         content.Controls.Add(SectionTitle("Skill listesi"));
         skillGrid.Width = 900;
         skillGrid.Height = 270;
@@ -155,11 +156,12 @@ sealed partial class MemorySelectV3Form
         content.Controls.Add(buffInfo);
 
         content.Controls.Add(SectionTitle("Nasıl çalışır"));
-        var help = new Label { AutoSize = false, Width = 900, Height = 214, Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
+        var help = new Label { AutoSize = false, Width = 900, Height = 248, Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
             "Saldırı: hedef seçiliyken sırayla basılır. Hedef türü General / Champion / Giant / Unique ... seçilirse yalnız o türdeki canavara basılır; " +
             "o türe özel satır yoksa Hepsi satırları kullanılır. “En az mob”: yakında (14 birim) en az bu kadar canavar varsa basılır (alan hasarı için). Süre = skill’in kendi bekleme süresi.\r\n" +
             "Buff: Skill ID varsa karakterin gerçek buff listesine bakılır, buff gidince tuş basılır. Skill ID yoksa süre dolunca basılır (0 = çalıştırma başına bir kez). " +
-            "Skill ID’yi “Buff ID’sini öğren” ile bulursun: satırı seç, düğmeye bas, oyunda buff’ı kendin kullan.\r\n" +
+            "Skill ID’yi “Karakterin skilleri” listesinden seçersin (Skilleri oku → Listeye ekle) ya da “Buff ID’sini öğren” ile bulursun.\r\n" +
+            "Tuşu boş, Skill ID’si dolu satır tuşsuz çalışır: bot skill’i kimliğiyle kullanır ve oyunun önde olması gerekmez. Tuşlu satır tuşa basar.\r\n" +
             "Acil: can yüzdesi sınırın altına inince ya da “En az mob” kadar canavar etrafı sarınca basılır; Skill ID varsa buff zaten açıksa basılmaz.\r\n" +
             "İyileştirme / Mana: HP / MP yüzdesi sınırın altına inince basılır. Öncelik: acil, iyileştirme, mana, buff, saldırı.\r\n" +
             "Arka plan: tuşlar oyun penceresine Windows mesajıyla gönderilir; oyun ön planda değilken de çalışır ama istemcinin bunu kabul ettiği " +
@@ -390,7 +392,7 @@ sealed partial class MemorySelectV3Form
         if (!useRotation || !RunSendKeys || heldScan != 0 || now < nextKey)
             return false;
         ushort key = rotation.Support(now, SkillContextNow());
-        if (key == 0 || !Press(key))
+        if (key == 0 || !PressSkill(key, 0))
             return false;
         nextKey = now + RunDelay;
         return true;
@@ -429,6 +431,7 @@ sealed partial class MemorySelectV3Form
             }
         }
         BackgroundKeyTestTick(now);
+        CastTestTick(now);
         if (buffInfo.Visible && learnUntil == 0 && bgPhase == 0 && !buffInfo.Text.StartsWith("Skill ID bulundu") && !buffInfo.Text.StartsWith("Arka plan") &&
             !buffInfo.Text.StartsWith("Yeni buff"))
         {

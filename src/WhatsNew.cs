@@ -16,7 +16,13 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.10.0.0", Title = "Skiller sayfası, buff takibi ve Grim'de durmayan yürüyüş",
+    internal static readonly Entry[] All = { new Entry { Version = "3.11.0.0", Title = "Skill seçimi, Explorer konuşması ve yeni Dungeon düzeni",
+        Items = new[] { "Skiller sayfasına “Karakterin skilleri” bölümü eklendi: “Skilleri oku” karakterin öğrendiği skill’leri oyun belleğinden bulur; adı, seviyesi ve Skill ID’siyle listelenir. Bulunamazsa “Tüm skiller” ile oyunun skill tablosunda ada göre aranır.",
+        "Seçilen skill “Listeye ekle” ile tuşsuz eklenir. Tuşu boş, Skill ID’si dolu satırı bot skill’i kimliğiyle kullanır; hotbar tuşu gerekmez ve oyunun önde olması gerekmez. Tuşlu satırlar eskisi gibi tuşa basar. “Kimlikle sına” düğmesi bir skill’i bir kez gönderip mana ve buff değişimine bakar.",
+        "Explorer: NPC seçilip onaylanınca bot artık NPC ile konuşur ve konuşma seçeneğini seçer (varsayılan 1. seçenek; “NPC’ye tıkla ve konuşma seçeneğini seç” ve “Seçenek no” ayarları). Nokta, konuşma isteği gönderildikten sonra bulundu sayılır.",
+        "Grim Crypt sayfası iki ayrı bölüme ayrıldı: üstte dungeon listesi ile çalıştırma sırası yan yana, altta tam genişlikte Dungeon görseli, Canlı iç görünüm ve Dünya haritası.",
+        "Not: skill listesinin bellekte bulunması ve skill / NPC konuşma isteklerinin oyunda kabul edilmesi gerçek oyunla henüz doğrulanmadı." } },
+        new Entry { Version = "3.10.0.0", Title = "Skiller sayfası, buff takibi ve Grim'de durmayan yürüyüş",
         Items = new[] { "Yeni Skiller sayfası (phBot'un Attack / Buffs sekmelerindeki özelliklere göre): her satırın adı, tuşu, türü, Skill ID'si, hedef türü, en az mob sayısı, süresi ve HP/MP yüzdesi vardır.",
         "Buff takibi: Skill ID'si olan buff'ın açık olup olmadığı karakterin gerçek buff listesinden okunur; buff bitince tuş basılır, açıkken basılmaz. “Buff ID’sini öğren” düğmesi ID'yi kendisi bulur: satırı seç, düğmeye bas, oyunda buff'ı kullan.",
         "Acil buff: can yüzdesi sınırın altına inince ya da etraftaki canavar sayısı sınıra ulaşınca basılır. İyileştirme ve mana önceliği: acil, iyileştirme, mana, buff, saldırı.",

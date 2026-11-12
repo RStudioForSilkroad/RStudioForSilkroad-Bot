@@ -30,7 +30,7 @@ sealed partial class MemorySelectV3Form
 
     void BuildQueuePanel(Control host)
     {
-        var panel = new Panel { Dock = DockStyle.Bottom, Height = 246, Padding = new Padding(0, 10, 0, 0) };
+        var panel = new Panel { Dock = DockStyle.Right, Width = 470, Padding = new Padding(14, 0, 0, 0) };
         var title = new Label { Text = "Çalıştırma sırası · Solo Trial · seçtiğin sırayla çalışır", Dock = DockStyle.Top,
             Height = 28, TextAlign = ContentAlignment.MiddleLeft, Font = Ui.Heading };
         queueInfo.Dock = DockStyle.Top;

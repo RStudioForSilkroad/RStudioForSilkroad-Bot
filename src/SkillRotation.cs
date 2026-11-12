@@ -10,6 +10,8 @@ using System.Linq;
 //   Acil         emergency buff: pressed when HP falls below Percent, or when at least MinMobs monsters crowd the character.
 //   İyileştirme  pressed when HP falls below Percent; Seconds = cooldown
 //   Mana         pressed when MP falls below Percent; Seconds = cooldown
+// A line with a Skill ID and no key is used by its id (the client is told to use that skill; no key, no foreground window needed);
+// a line with a key presses the key.
 public sealed class SkillSlot
 {
     public bool On = true;
@@ -71,6 +73,8 @@ sealed class SkillRotation
     internal const string Attack_ = "Saldırı", Buff_ = "Buff", Heal_ = "İyileştirme", Mana_ = "Mana", Emergency_ = "Acil";
     internal static readonly string[] Kinds = { Attack_, Buff_, Emergency_, Heal_, Mana_ };
     internal const string AnyTarget = "Hepsi";
+    // Returned instead of a key for a line that has a Skill ID and no key: the caller uses LastSkillId.
+    internal const ushort IdOnly = 0xFFFF;
     internal static readonly string[] Targets = { AnyTarget, "General", "Champion", "Giant", "General Party", "Champion Party",
         "Giant Party", "Unique", "Diğer" };
 
@@ -84,6 +88,22 @@ sealed class SkillRotation
 
     readonly List<Entry> entries = new List<Entry>();
     int attackIndex;
+
+    // The skill id and kind of the line the last call returned a key (or IdOnly) for.
+    internal int LastSkillId { get; private set; }
+    internal string LastKind { get; private set; }
+
+    ushort Chosen(Entry e)
+    {
+        LastSkillId = e.SkillId;
+        LastKind = e.Kind;
+        return e.Key;
+    }
+
+    internal bool HasIdOnly
+    {
+        get { return entries.Any(e => e.Key == IdOnly); }
+    }
     SkillOptions options = new SkillOptions();
 
     internal bool HasAttack
@@ -118,7 +138,10 @@ sealed class SkillRotation
             var s = slots[i];
             if (!s.On)
                 continue;
-            if (ParseKey(s.Key) == 0)
+            bool noKey = string.IsNullOrWhiteSpace(s.Key);
+            if (noKey && s.SkillId <= 0)
+                return (i + 1) + ". skill: tuş yaz ya da skill’i listeden seçip Skill ID ver (tuşsuz kullanılır).";
+            if (!noKey && ParseKey(s.Key) == 0)
                 return (i + 1) + ". skill: tuş geçersiz (1-9, 0, A-Z veya F1-F12).";
             if (!Kinds.Contains(s.Kind))
                 return (i + 1) + ". skill: tür seçilmedi.";
@@ -151,6 +174,8 @@ sealed class SkillRotation
         foreach (var s in slots.Where(s => s.On))
         {
             ushort key = ParseKey(s.Key);
+            if (key == 0 && s.SkillId > 0 && string.IsNullOrWhiteSpace(s.Key))
+                key = IdOnly;
             if (key != 0 && Kinds.Contains(s.Kind))
                 entries.Add(new Entry
                 {
@@ -163,7 +188,7 @@ sealed class SkillRotation
     // All keys of the enabled lines, for the check against the start/stop shortcut.
     internal List<ushort> Keys()
     {
-        return entries.Select(e => e.Key).Distinct().ToList();
+        return entries.Where(e => e.Key != IdOnly).Select(e => e.Key).Distinct().ToList();
     }
 
     // After a revival or a change of area the buffs are gone: every buff is due again.
@@ -201,7 +226,7 @@ sealed class SkillRotation
             if (e.SkillId > 0 && c.Buffs != null && c.Buffs.Contains((uint)e.SkillId))
                 continue;
             e.Due = now + Math.Max(2, e.Seconds) * 1000L;
-            return e.Key;
+            return Chosen(e);
         }
         foreach (string kind in new[] { Heal_, Mana_ })
             foreach (var e in entries)
@@ -213,7 +238,7 @@ sealed class SkillRotation
                 if (kind == Mana_ && !(c.StatsKnown && c.Mp < e.Percent))
                     continue;
                 e.Due = now + Math.Max(2, e.Seconds) * 1000L;
-                return e.Key;
+                return Chosen(e);
             }
         foreach (var e in entries)
         {
@@ -233,7 +258,7 @@ sealed class SkillRotation
             }
             else
                 e.Due = e.Seconds == 0 ? long.MaxValue : now + e.Seconds * 1000L;
-            return e.Key;
+            return Chosen(e);
         }
         return 0;
     }
@@ -269,7 +294,7 @@ sealed class SkillRotation
                 continue;
             e.Due = now + e.Seconds * 1000L;
             attackIndex = (index + 1) % count;
-            return e.Key;
+            return Chosen(e);
         }
         return 0;
     }

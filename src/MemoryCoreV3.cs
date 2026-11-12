@@ -220,6 +220,11 @@ sealed class GameReader : IDisposable
         }
     }
 
+    internal IntPtr Handle
+    {
+        get { return handle; }
+    }
+
     internal byte[] Read(uint address, int size)
     {
         byte[] b = new byte[size];
@@ -712,12 +717,39 @@ sealed class TargetSender : IDisposable
 
     internal static byte[] BuildPacket(uint block, uint fn, ushort opcode, byte[] payload)
     {
-        if (opcode != 0x7045 && opcode != 0x704c && opcode != 0x3053 && opcode != 0x705a)
+        if (opcode != 0x7045 && opcode != 0x704c && opcode != 0x3053 && opcode != 0x705a && opcode != 0x7046 && opcode != 0x7074)
             throw new ArgumentException("Desteklenmeyen komut.");
         if ((opcode == 0x705a && (payload.Length != 9 || payload[4] != 2)) || payload.Length > 32 || (opcode == 0x7045 &&
-            payload.Length != 4) || (opcode == 0x3053 && (payload.Length != 1 || payload[0] != 1)))
+            payload.Length != 4) || (opcode == 0x3053 && (payload.Length != 1 || payload[0] != 1)) ||
+            (opcode == 0x7046 && (payload.Length != 5 || payload[4] < 1 || payload[4] > 9)) ||
+            (opcode == 0x7074 && !ValidCast(payload)))
             throw new ArgumentException("Geçersiz veri.");
         return BuildCall(block, fn, new uint[] { opcode, block + 64, (uint)payload.Length }, payload);
+    }
+
+    // Use of a skill: 01 04, the skill id, then 00 (no target: a buff on oneself) or 01 and the target's id.
+    internal static bool ValidCast(byte[] payload)
+    {
+        if (payload == null || payload.Length < 7 || payload[0] != 1 || payload[1] != 4)
+            return false;
+        uint skill = BitConverter.ToUInt32(payload, 2);
+        if (skill == 0 || skill > 99999999)
+            return false;
+        return (payload.Length == 7 && payload[6] == 0) || (payload.Length == 11 && payload[6] == 1 && BitConverter.ToUInt32(payload, 7) != 0);
+    }
+
+    internal static byte[] CastPayload(uint skill, uint target)
+    {
+        var payload = new byte[target == 0 ? 7 : 11];
+        payload[0] = 1;
+        payload[1] = 4;
+        Array.Copy(BitConverter.GetBytes(skill), 0, payload, 2, 4);
+        if (target != 0)
+        {
+            payload[6] = 1;
+            Array.Copy(BitConverter.GetBytes(target), 0, payload, 7, 4);
+        }
+        return payload;
     }
 
     internal static byte[] BuildCall(uint block, uint fn, uint[] arguments, byte[] payload)
@@ -802,6 +834,26 @@ sealed class TargetSender : IDisposable
         payload[4] = 2;
         Array.Copy(BitConverter.GetBytes(to), 0, payload, 5, 4);
         return Execute(b => BuildPacket(b, function, 0x705a, payload));
+    }
+
+    // Uses a skill by its id: on the given target, or on oneself (target 0). The client's own send function is used; no key is pressed.
+    internal bool Cast(uint skill, uint target)
+    {
+        byte[] payload = CastPayload(skill, target);
+        if (!ValidCast(payload))
+            throw new InvalidOperationException("Skill kimliği geçersiz.");
+        return Execute(b => BuildPacket(b, function, 0x7074, payload));
+    }
+
+    // Talk to a selected NPC: the NPC's id and the number of the dialog option (1 = the first option).
+    internal bool Talk(uint uid, int option)
+    {
+        if (uid == 0 || option < 1 || option > 9)
+            throw new InvalidOperationException("Konuşma seçeneği geçersiz.");
+        byte[] payload = new byte[5];
+        Array.Copy(BitConverter.GetBytes(uid), payload, 4);
+        payload[4] = (byte)option;
+        return Execute(b => BuildPacket(b, function, 0x7046, payload));
     }
 
     internal bool ReturnTown()

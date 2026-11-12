@@ -441,7 +441,38 @@ sealed partial class MemorySelectV3Form : Form
             return true;
         if (reader.IsMinimized())
             return false;
-        return operation == OperationMode.Travel ? backgroundWalk.Checked : backgroundKeys.Checked;
+        if (operation == OperationMode.Travel)
+            return backgroundWalk.Checked;
+        // Lines that use a skill by its id send no key at all, so they work with the game behind other windows.
+        return backgroundKeys.Checked || (active && useRotation && rotation.HasIdOnly);
+    }
+
+    // Presses the key of a skill line or, for a line with a Skill ID and no key, tells the client to use that skill on the target
+    // (attack lines) or on the character itself (buffs, heals, mana).
+    bool PressSkill(ushort key, uint target)
+    {
+        if (key != SkillRotation.IdOnly)
+            return Press(key);
+        int id = rotation.LastSkillId;
+        if (sender == null || id <= 0 || !CommandsAllowed())
+            return false;
+        try
+        {
+            if (sender.Cast((uint)id, rotation.LastKind == SkillRotation.Attack_ ? target : 0))
+                return true;
+            Log("Skill " + SkillLabel(id) + " gönderilemedi (istemci reddetti).");
+        }
+        catch (IOException e)
+        {
+            Log("Skill " + SkillLabel(id) + " gönderilemedi · " + e.Message);
+        }
+        return false;
+    }
+
+    static string SkillLabel(int id)
+    {
+        string name = SkillCatalog.NameOf((uint)id);
+        return name.Length == 0 ? id.ToString() : name + " (" + id + ")";
     }
 
     bool WalkChecked(Position destination, long now, Func<Position, bool> allowed, string label, bool skipOnFailure)
@@ -866,7 +897,7 @@ sealed partial class MemorySelectV3Form : Form
             if (RunSendKeys && useRotation && now >= nextKey && heldScan == 0)
             {
                 ushort attackKey = rotation.NextAttack(now, V2Rules.ClassName(target), MonstersNear());
-                if (attackKey != 0 && Press(attackKey))
+                if (attackKey != 0 && PressSkill(attackKey, target.Uid))
                     nextKey = now + RunDelay;
             }
             else if (RunSendKeys && parsedKeys.Length > 0 && now >= nextKey && heldScan == 0)

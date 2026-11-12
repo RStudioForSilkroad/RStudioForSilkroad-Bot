@@ -386,7 +386,8 @@ sealed class ExplorerRun
 {
     internal List<int> Pending = new List<int>();
     internal ExplorerSpot Spot;
-    // 0 walking to the spot, 1 walking to the NPC, 2 NPC clicked / waiting for the selection, 3 looking around the spot
+    // 0 walking to the spot, 1 walking to the NPC, 2 NPC clicked / waiting for the selection, 3 looking around the spot,
+    // 4 the dialog option was sent / waiting before the next spot
     internal int Phase, Tries, RingIndex, Failures, Total;
     internal long Since, PointSince;
     internal uint Uid;
@@ -402,6 +403,8 @@ sealed partial class MemorySelectV3Form
     readonly Label explorerStatus = new Label();
     readonly CheckBox explorerSkipDone = new CheckBox();
     readonly NumericUpDown explorerModel = new NumericUpDown();
+    readonly NumericUpDown explorerOption = new NumericUpDown();
+    readonly CheckBox explorerTalk = new CheckBox();
     readonly HashSet<int> explorerMissing = new HashSet<int>();
     ExplorerRun explorerRun;
     bool explorerAdvancing, explorerSyncing;
@@ -511,6 +514,23 @@ sealed partial class MemorySelectV3Form
         modelRow.Controls.Add(explorerModel);
         modelRow.Controls.Add(Btn("Seçili NPC’yi kullan", UseSelectedExplorerNpc, 160, true, ButtonKind.Ghost));
         actions.Controls.Add(modelRow);
+        ConfigureCheck(explorerTalk, "NPC’ye tıkla ve konuşma seçeneğini seç", true, 0);
+        explorerTalk.CheckedChanged += delegate
+        {
+            if (!explorerSyncing)
+                SaveSettingsQuietly();
+        };
+        actions.Controls.Add(explorerTalk);
+        var optionRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0) };
+        optionRow.Controls.Add(new Label { Text = "Seçenek no", AutoSize = false, Width = 82, Height = 30, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 3, 0, 0) });
+        Num(explorerOption, 1, 9, 1, 0, 100);
+        explorerOption.ValueChanged += delegate
+        {
+            if (!explorerSyncing)
+                SaveSettingsQuietly();
+        };
+        optionRow.Controls.Add(explorerOption);
+        actions.Controls.Add(optionRow);
         actions.Controls.Add(Btn("Bulunanları sıfırla", ResetExplorerProgress, 170, true, ButtonKind.Ghost));
         explorerStatus.AutoSize = false;
         explorerStatus.Height = 64;
@@ -641,7 +661,7 @@ sealed partial class MemorySelectV3Form
 
     static string ExplorerPhaseText(ExplorerRun run)
     {
-        return run.Phase == 0 ? "noktaya yürüyor" : run.Phase == 1 ? "NPC’ye yaklaşıyor" : run.Phase == 2 ? "tıklandı, onay bekleniyor" :
+        return run.Phase == 0 ? "noktaya yürüyor" : run.Phase == 1 ? "NPC’ye yaklaşıyor" : run.Phase == 2 ? "tıklandı, onay bekleniyor" : run.Phase == 4 ? "konuşma seçeneği seçildi" :
             "çevrede NPC arıyor";
     }
 
@@ -791,6 +811,17 @@ sealed partial class MemorySelectV3Form
         ExplorerNext();
     }
 
+    void ExplorerDoneNow()
+    {
+        var run = explorerRun;
+        if (!settings.ExplorerDone.Contains(run.Spot.N))
+            settings.ExplorerDone.Add(run.Spot.N);
+        explorerMissing.Remove(run.Spot.N);
+        SaveSettingsQuietly();
+        Log("Explorer " + run.Spot.N + " bulundu · onaylandı");
+        ExplorerNext();
+    }
+
     string NearbyNpcModels()
     {
         var list = snapshot.Npcs.Where(n => n.Position != null && n.Position.Distance(snapshot.Player) <= 300).GroupBy(n => n.Model)
@@ -879,12 +910,30 @@ sealed partial class MemorySelectV3Form
                 if (now - run.Since < 800)
                     return true;
                 run.Handled.Add(run.Uid);
-                if (!settings.ExplorerDone.Contains(run.Spot.N))
-                    settings.ExplorerDone.Add(run.Spot.N);
-                explorerMissing.Remove(run.Spot.N);
-                SaveSettingsQuietly();
-                Log("Explorer " + run.Spot.N + " bulundu · onaylandı");
-                ExplorerNext();
+                if (explorerTalk.Checked)
+                {
+                    int option = (int)explorerOption.Value;
+                    bool sent = false;
+                    try
+                    {
+                        sent = sender.Talk(run.Uid, option);
+                    }
+                    catch (System.IO.IOException e)
+                    {
+                        Log("Explorer " + run.Spot.N + " · konuşma gönderilemedi · " + e.Message);
+                    }
+                    if (sent)
+                    {
+                        run.Phase = 4;
+                        run.Since = now;
+                        Log("Explorer " + run.Spot.N + " · NPC ile konuşuldu · seçenek " + option);
+                        RefreshExplorerUi();
+                        return true;
+                    }
+                    ExplorerMissingNow("konuşma isteği reddedildi");
+                    return true;
+                }
+                ExplorerDoneNow();
                 return true;
             }
             if (now - run.Since > 4000)
@@ -905,6 +954,13 @@ sealed partial class MemorySelectV3Form
                 run.Tries++;
                 run.Since = now;
             }
+            return true;
+        }
+        if (run.Phase == 4)
+        {
+            // Give the server a moment to answer the dialog choice before moving on.
+            if (now - run.Since >= 1500)
+                ExplorerDoneNow();
             return true;
         }
         // Phase 3: walk the ring points, one after the other, until the NPC shows up.

@@ -430,6 +430,8 @@ sealed class V3Settings
     public List<int> ExplorerDone = new List<int>();
     public bool ExplorerSkipDone = true;
     public int ExplorerModel = ExplorerSpots.DefaultModel;
+    public bool ExplorerTalk = true;
+    public int ExplorerTalkOption = 1;
     public List<string> DungeonQueue = new List<string>();
     public bool QueueReturnScroll = true;
     public bool HideWhatsNew;
