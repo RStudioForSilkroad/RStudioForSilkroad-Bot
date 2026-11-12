@@ -89,6 +89,7 @@ static class TradeRoutes
     internal static List<TransitStep> PlanWalk(Position start, Position goal)
     {
         RoadMesh.WalkOnly = true;
+        RoadMesh.AllowFerries = true;
         try
         {
             return ExpeditionRules.Plan(start, goal);
@@ -96,6 +97,7 @@ static class TradeRoutes
         finally
         {
             RoadMesh.WalkOnly = false;
+            RoadMesh.AllowFerries = false;
         }
     }
 
@@ -104,13 +106,20 @@ static class TradeRoutes
     {
         var text = new StringBuilder();
         var ci = CultureInfo.InvariantCulture;
-        var points = new List<Position> { start };
-        points.AddRange(plan.Select(s => s.To.Point()));
+        var steps = plan.ToList();
+        int ferries = steps.Count(RoadMesh.IsFerry);
         text.AppendLine("# Silkroad R Studio · kervan rotası");
-        text.AppendLine("# " + from + " → " + to + " · " + points.Count + " nokta · yalnızca yürüyüş (teleport ve gemi yok)");
+        text.AppendLine("# " + from + " → " + to + " · " + (steps.Count + 1) + " nokta · yürüyüş" + (ferries > 0 ? " + " + ferries +
+            " feribot geçişi" : "") + " (teleport yok)");
         text.AppendLine("# Biçim: walk,X,Y,Z");
-        foreach (var p in points)
+        text.AppendLine("walk," + start.X.ToString("F0", ci) + "," + start.Y.ToString("F0", ci) + "," + start.Height.ToString("F0", ci));
+        foreach (var step in steps)
+        {
+            if (RoadMesh.IsFerry(step))
+                text.AppendLine("# feribot: " + step.From.Code + " NPC’sine tıkla, " + step.To.Code + " yakasına geç");
+            var p = step.To.Point();
             text.AppendLine("walk," + p.X.ToString("F0", ci) + "," + p.Y.ToString("F0", ci) + "," + p.Height.ToString("F0", ci));
+        }
         return text.ToString();
     }
 
@@ -131,8 +140,9 @@ sealed partial class MemorySelectV3Form
         var page = new TabPage("Kervan Rotası");
         tabs.TabPages.Add(page);
         var content = PageCard(page, "Kervan rotası", 820);
-        var intro = new Label { AutoSize = false, Width = 760, Height = 66, Tag = "muted", Margin = new Padding(0, 0, 0, 8), Text =
-            "Ticaret malı ışınlanamaz ve gemiyle taşınamaz: rota yalnızca yoldan, teleport kullanmadan hesaplanır. " +
+        var intro = new Label { AutoSize = false, Width = 760, Height = 88, Tag = "muted", Margin = new Padding(0, 0, 0, 8), Text =
+            "Ticaret malı ışınlanamaz: rota yürüyerek hesaplanır, teleport, Return Scroll ve binek kullanılmaz. Nehir geçişlerinde (örneğin Hotan - Donwhang) " +
+            "en uygun feribot geçidi seçilir ve karakter feribot NPC’sine kendisi tıklayıp karşıya geçer. " +
             "Önce her şehirde tüccar NPC’ye oyunda tıklayıp “Seçili NPC’yi kaydet” düğmesine bas; konum bir kez öğrenilir." };
         content.Controls.Add(intro);
 

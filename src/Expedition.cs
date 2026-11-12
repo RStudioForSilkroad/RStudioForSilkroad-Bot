@@ -256,6 +256,7 @@ sealed partial class MemorySelectV3Form
         foreach (var id in settings.BlockedRoadCells)
             skip.Add(id);
         RoadMesh.WalkOnly = caravanWalk;
+        RoadMesh.AllowFerries = caravanWalk;
         try
         {
             return ExpeditionRules.Plan(start, goal, skip);
@@ -276,6 +277,7 @@ sealed partial class MemorySelectV3Form
         finally
         {
             RoadMesh.WalkOnly = false;
+            RoadMesh.AllowFerries = false;
         }
     }
 
@@ -485,7 +487,8 @@ sealed partial class MemorySelectV3Form
                     routeWalker.Reset();
                     return;
                 }
-                if (!EnsureTravelMount(false, now))
+                // A caravan never changes mount: the transport it rides stays summoned for the ferry.
+                if (!caravanWalk && !EnsureTravelMount(false, now))
                     return;
                 if (npc == null || !reader.ValidateNpc(npc))
                 {

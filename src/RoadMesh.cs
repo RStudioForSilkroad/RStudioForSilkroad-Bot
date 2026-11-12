@@ -401,6 +401,18 @@ sealed class RoadMesh
     internal static double HopCost = 600;
     // Trade goods cannot be teleported or shipped: while set, planning uses roads only and never a teleport, ferry or flyship hop.
     internal static bool WalkOnly;
+    // With WalkOnly: ferries (river crossings) may still be used, for example Hotan - Donwhang has no other link.
+    internal static bool AllowFerries;
+
+    internal static bool IsFerry(TransitStep hop)
+    {
+        return hop != null && hop.From != null && hop.To != null && hop.From.Code != null && hop.To.Code != null &&
+            hop.From.Code.IndexOf("FERRY", StringComparison.OrdinalIgnoreCase) >= 0 &&
+            hop.To.Code.IndexOf("FERRY", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+    // Where the connected road network came closest to the goal in the last planning that needed a live approach (diagnostics).
+    internal static Position LastReach;
+    internal static double LastReachGap;
     internal static double WallPenalty = 40, ObjectPenalty = 1.5;
     // The last stretch to an entrance that the map cannot reach is walked live, which is less reliable: every unit of it counts several times.
     const double LiveGapWeight = 6, ShortcutGap = 240, ShortcutMargin = 600;
@@ -500,9 +512,12 @@ sealed class RoadMesh
                 if (node == bridgeFrom)
                     visit(node, bridgeTo, bridgeCost, null);
                 List<TransitStep> options;
-                if (!WalkOnly && transfers.TryGetValue(node, out options))
+                if (transfers.TryGetValue(node, out options))
                     foreach (var hop in options)
                     {
+                        // Trade goods: no teleports and no flyships; a ferry across a river is the only transfer allowed.
+                        if (WalkOnly && !(AllowFerries && IsFerry(hop)))
+                            continue;
                         // Never route through a teleport into Nanzhang unless the destination itself is there.
                         if (hop.To.Id == 252 && ExpeditionRules.Area(goal) != "Nanzhang")
                             continue;
@@ -538,6 +553,8 @@ sealed class RoadMesh
             // The live walker validates the final short leg around portal objects.
             var approach = nearestNode == origin ? start : cells[nearestNode].Center();
             double approachLimit = ExpeditionRules.Area(approach) == ExpeditionRules.Area(goal) ? 192 : 64;
+            LastReach = approach;
+            LastReachGap = nearestGap;
             if (!shortcut && nearestGap > approachLimit)
                 throw new InvalidOperationException("Harita verisinde portala bağlı yol bulunamadı.");
             destination = nearestNode;

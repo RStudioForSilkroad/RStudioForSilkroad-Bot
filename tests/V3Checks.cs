@@ -193,13 +193,33 @@ class V3Checks
         try
         {
             var plan = TradeRoutes.PlanWalk(from, to);
-            A(plan.All(s2 => s2.From == null), "Caravan plan never uses a hop");
+            A(plan.All(s2 => s2.From == null || RoadMesh.IsFerry(s2)), "Caravan plan never uses a teleport, only ferries");
         }
         catch (InvalidOperationException)
         {
             // Not connected by road in the map data: refusing is the correct answer for trade goods.
         }
-        A(!RoadMesh.WalkOnly, "Road-only flag is released after planning");
+        A(!RoadMesh.WalkOnly && !RoadMesh.AllowFerries, "Road-only and ferry flags are released after planning");
+        // Hotan has no land link to Donwhang or Jangan: the river is crossed by the nearest ferry, never by a teleport.
+        var hotanTrader = V2Rules.Center(148.8, 85.1, 0f);
+        var donwhangTrader = V2Rules.Center(3495, 2076, 0f);
+        var janganTrader = V2Rules.Center(6512, 1008, 0f);
+        foreach (var pair in new[] { new[] { hotanTrader, donwhangTrader }, new[] { donwhangTrader, hotanTrader },
+            new[] { janganTrader, hotanTrader }, new[] { hotanTrader, janganTrader }, new[] { janganTrader, donwhangTrader },
+            new[] { donwhangTrader, janganTrader } })
+        {
+            float groundA, groundB;
+            ExpeditionRules.TryGround(pair[0], out groundA);
+            ExpeditionRules.TryGround(pair[1], out groundB);
+            pair[0].Height = groundA;
+            pair[1].Height = groundB;
+            var ferryPlan = TradeRoutes.PlanWalk(pair[0], pair[1]);
+            A(ferryPlan.Count > 10 && ferryPlan.Count(RoadMesh.IsFerry) >= 1 && ferryPlan.All(s3 => s3.From == null || RoadMesh.IsFerry(s3)),
+                "Caravan route " + (int)pair[0].X + "," + (int)pair[0].Y + " → " + (int)pair[1].X + "," + (int)pair[1].Y + " crosses by ferry only");
+        }
+        var scriptSteps = TradeRoutes.PlanWalk(hotanTrader, donwhangTrader);
+        string scriptText = TradeRoutes.Script("Hotan", "Donwhang", hotanTrader, scriptSteps);
+        A(scriptText.Contains("# feribot: GATE_NPC_KT_FERRY2") && scriptText.Contains("1 feribot geçişi"), "Script marks the ferry crossing");
         SkillChecks();
         StartupChecks();
         ExplorerChecks();
@@ -684,6 +704,9 @@ class V3Checks
             };
             A(LevelData.Required(84) == 193898546 && LevelData.Required(52) == 12913686,
                 "Level table matches the game data");
+            // Levels 85-89 need far more than the standard table says: 814,298,430 EXP at level 86 is 30.77 % in the game.
+            A(LevelData.Required(85) == 2483101044L && LevelData.Required(86) == 2646704676L && LevelData.Required(89) == 5307077340L &&
+                Math.Round(100.0 * 814298430 / LevelData.Required(86), 2) == 30.77, "Level 85-89 requirements come from the client's own level data");
             charStats.Observe(0, charSample(84, 1000000, 100, 900));
             charStats.Observe(30000, charSample(84, 1000600, 200, 900));
             charStats.Observe(60000, charSample(84, 1001200, 350, 901));
