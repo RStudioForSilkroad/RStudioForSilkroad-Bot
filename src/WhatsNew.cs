@@ -16,7 +16,15 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.8.1.0", Title = "Açılış ekranı ve hızlı sekme geçişi",
+    internal static readonly Entry[] All = { new Entry { Version = "3.9.0.0", Title = "Kervan feribotu, arka planda yürüyüş ve hız",
+        Items = new[] { "Kervan rotaları: Hotan, Jangan ve Donwhang arasında altı rota. Nehir geçişlerinde en uygun feribot geçidi seçilir ve karakter feribot NPC’sine kendisi tıklayıp karşıya geçer; teleport kullanılmaz.",
+        "Jangan'a giren ya da çıkan rotalar surun güney kapısındaki kemerden düz geçer; karakter şehrin neresinde olursa olsun doğu kapıdan dolanmaz.",
+        "Tüm NPC'ler artık okunur: “Seçili NPC’yi kaydet” tüccarları kaydeder, Explorer NPC’si bulunur. Hotan şehri (Hotan Kingdom sektörü) tüccar kaydında tanınır.",
+        "Yürüyüş işleri (kervan, Explorer, dungeon yolu) oyun arka plandayken de çalışır (Ayarlar > Yolculuk). Av için oyunun önde olması gerekir, çünkü saldırı tuşları klavye ile gönderilir.",
+        "İş bitince bildirim: kervan ya da Explorer bitince ses, balon ve görev çubuğu uyarısı.",
+        "EXP çubuğu düzeltildi: seviye 85-89 için gereken EXP oyunun kendi tablosundan alınır; çubuk oyundaki yüzdeyle aynıdır.",
+        "Hız: yol arama oyuna sorguları toplu gönderir (turdaki en uzun bekleme 111-162 ms yerine 35-52 ms, oyunda 8 kat az iş parçacığı); Explorer ve Dünya haritaları tur başına 101 / 81 ms yerine 12 / 17 ms çizilir; iş çalışırken bot oyunu 100 ms'de bir okur." } },
+        new Entry { Version = "3.8.1.0", Title = "Açılış ekranı ve hızlı sekme geçişi",
         Items = new[] { "Yeni açılış ekranı: dosyalar denetlenir, ayarlar okunur, oyun verileri ve yol ağı yüklenir, pencere kurulur; ilerleme çubuğu adım adım gösterilir. Eksik dosya varsa adıyla bildirilir.",
         "Av / Ayarlar sayfasına dönerken yaşanan donma giderildi: sayfa açılırken yüzlerce ayrı yerleşim hesabı yapılıyordu, artık düzen bir kez hesaplanır (3-5 sn yerine saniyenin onda biri).",
         "Pencerenin ilk açılışı da aynı şekilde hızlandı." } },
