@@ -3,7 +3,7 @@ using System.Windows.Forms;
 
 sealed partial class MemorySelectV3Form
 {
-    readonly CheckBox returnBeforeTravel = new CheckBox(), travelMount = new CheckBox();
+    readonly CheckBox returnBeforeTravel = new CheckBox(), travelMount = new CheckBox(), backgroundWalk = new CheckBox();
     bool mountPending, mountDesired;
     long mountSince;
 

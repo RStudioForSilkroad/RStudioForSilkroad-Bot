@@ -86,13 +86,44 @@ static class TradeRoutes
     }
 
     // Road-only plan: no teleport, ferry or flyship hop.
+    // Jangan's walls. The caravan road leaves and enters the city by the south gate, but the map data does not know where the gate
+    // opens: it only prices the wall, so a start in the north of the city would leave by the east gate and loop around the outside.
+    internal const double JanganLeft = 6170, JanganRight = 6675, JanganBottom = 955, JanganTop = 1330, SouthGateX = 6436, SouthGateY = 965;
+
+    internal static bool InJangan(Position p)
+    {
+        return p != null && p.X >= JanganLeft && p.X <= JanganRight && p.Y >= JanganBottom && p.Y <= JanganTop;
+    }
+
+    // The south gate when the route crosses Jangan's wall (one end inside the city, the other outside), otherwise null.
+    internal static Position ViaPoint(Position start, Position goal)
+    {
+        if (InJangan(start) == InJangan(goal))
+            return null;
+        var gate = V2Rules.Center(SouthGateX, SouthGateY, 0);
+        float height;
+        if (ExpeditionRules.TryGround(gate, out height))
+            gate.Height = height;
+        return gate;
+    }
+
+    internal static List<TransitStep> PlanVia(Position start, Position goal, Func<Position, Position, List<TransitStep>> planner)
+    {
+        var via = ViaPoint(start, goal);
+        if (via == null)
+            return planner(start, goal);
+        var plan = new List<TransitStep>(planner(start, via));
+        plan.AddRange(planner(via, goal));
+        return plan;
+    }
+
     internal static List<TransitStep> PlanWalk(Position start, Position goal)
     {
         RoadMesh.WalkOnly = true;
         RoadMesh.AllowFerries = true;
         try
         {
-            return ExpeditionRules.Plan(start, goal);
+            return PlanVia(start, goal, (a, b) => ExpeditionRules.Plan(a, b));
         }
         finally
         {

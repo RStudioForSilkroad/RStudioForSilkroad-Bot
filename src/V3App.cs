@@ -313,7 +313,7 @@ sealed partial class MemorySelectV3Form : Form
             {
                 try
                 {
-                    if (reader.IsForeground())
+                    if (CommandsAllowed())
                         sender.Move(snapshot.Player.Copy());
                 }
                 catch { }
@@ -404,7 +404,7 @@ sealed partial class MemorySelectV3Form : Form
         }
         if (item == null)
             return false;
-        if (!reader.IsForeground() || !reader.ValidateItem(item))
+        if (!CommandsAllowed() || !reader.ValidateItem(item))
             return true;
         ReleaseKey();
         transaction.Begin(kind, item, snapshot, now);
@@ -418,10 +418,21 @@ sealed partial class MemorySelectV3Form : Form
         return true;
     }
 
+    // Commands may be sent while the game is in front. Walking jobs (travel, Explorer, caravan) send no keys, only the client's own move,
+    // select and transfer calls, so they may also run while the game is behind other windows, unless it is minimised.
+    bool CommandsAllowed()
+    {
+        if (reader == null)
+            return false;
+        if (reader.IsForeground())
+            return true;
+        return backgroundWalk.Checked && operation == OperationMode.Travel && !reader.IsMinimized();
+    }
+
     bool WalkChecked(Position destination, long now, Func<Position, bool> allowed, string label, bool skipOnFailure)
     {
         ReleaseKey();
-        if (!reader.IsForeground())
+        if (!CommandsAllowed())
             return false;
         if (operation == OperationMode.Travel && travelMount.Checked && !caravanWalk && !EnsureTravelMount(true, now))
             return false;
@@ -443,7 +454,7 @@ sealed partial class MemorySelectV3Form : Form
                 return false;
             if (skipOnFailure && wanted != 0)
             {
-                if (reader.IsForeground())
+                if (CommandsAllowed())
                     sender.Move(snapshot.Player.Copy());
                 Skip(wanted, reason, now);
                 routeTarget = 0;
@@ -469,7 +480,7 @@ sealed partial class MemorySelectV3Form : Form
             if (routeWalker.Active)
             {
                 routeWalker.Reset();
-                if (reader.IsForeground())
+                if (CommandsAllowed())
                     sender.Move(snapshot.Player.Copy());
             }
             status.Text = "Uygun hedef yok; merkeze dönüş kapalı.";
@@ -573,7 +584,7 @@ sealed partial class MemorySelectV3Form : Form
             }
             if (!active)
                 return;
-            bool foreground = reader.IsForeground();
+            bool foreground = CommandsAllowed();
             int before = recovery.Deaths;
             RecoveryAction recoveryAction = recovery.Observe(snapshot, now, foreground, RunRecovery, RunWait,
                 RunDeathLimit);
@@ -594,7 +605,7 @@ sealed partial class MemorySelectV3Form : Form
             if (recoveryAction == RecoveryAction.ReturnTown)
             {
                 ReleaseKey();
-                if (!reader.IsForeground())
+                if (!CommandsAllowed())
                     return;
                 if (!sender.ReturnTown())
                 {
@@ -607,7 +618,7 @@ sealed partial class MemorySelectV3Form : Form
             {
                 ReleaseKey();
                 BagItem reverse = RecoveryRules.PickReverse(snapshot);
-                if (reverse == null || !reader.IsForeground() || !reader.ValidateItem(reverse))
+                if (reverse == null || !CommandsAllowed() || !reader.ValidateItem(reverse))
                 {
                     Stop("Reverse eşyası / ön pencere doğrulanamadı.");
                     return;
@@ -651,7 +662,8 @@ sealed partial class MemorySelectV3Form : Form
                 routeWalker.Pause(elapsed);
                 if (returning)
                     returnProgressAt += elapsed;
-                status.Text = "Bekliyor: oyun önde değil.";
+                status.Text = backgroundWalk.Checked && operation == OperationMode.Travel ? "Bekliyor: oyun penceresi simge durumunda; büyüt ya da arka plana al." :
+                    "Bekliyor: oyun önde değil.";
                 return;
             }
             if (!snapshot.Player.Outside)

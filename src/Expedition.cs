@@ -259,7 +259,7 @@ sealed partial class MemorySelectV3Form
         RoadMesh.AllowFerries = caravanWalk;
         try
         {
-            return ExpeditionRules.Plan(start, goal, skip);
+            return PlanLeg(start, goal, skip);
         }
         catch (InvalidOperationException)
         {
@@ -272,13 +272,21 @@ sealed partial class MemorySelectV3Form
                 settings.Save();
             }
             catch { }
-            return ExpeditionRules.Plan(start, goal, excludedRoadCells);
+            return PlanLeg(start, goal, excludedRoadCells);
         }
         finally
         {
             RoadMesh.WalkOnly = false;
             RoadMesh.AllowFerries = false;
         }
+    }
+
+    // A caravan crossing Jangan's wall is led through the south gate; every other route is planned straight.
+    List<TransitStep> PlanLeg(Position start, Position goal, HashSet<int> skip)
+    {
+        if (!caravanWalk)
+            return ExpeditionRules.Plan(start, goal, skip);
+        return TradeRoutes.PlanVia(start, goal, (a, b) => ExpeditionRules.Plan(a, b, skip));
     }
 
     void RememberBlockedCell(int id)

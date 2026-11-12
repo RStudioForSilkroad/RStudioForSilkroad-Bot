@@ -217,6 +217,24 @@ class V3Checks
             A(ferryPlan.Count > 10 && ferryPlan.Count(RoadMesh.IsFerry) >= 1 && ferryPlan.All(s3 => s3.From == null || RoadMesh.IsFerry(s3)),
                 "Caravan route " + (int)pair[0].X + "," + (int)pair[0].Y + " → " + (int)pair[1].X + "," + (int)pair[1].Y + " crosses by ferry only");
         }
+        // Jangan: the caravan road crosses the wall by the south gate, from wherever the character stands inside the city.
+        var southSoldier = V2Rules.Center(6434, 968, 0f);
+        var eastSoldier = V2Rules.Center(6662, 1142, 0f);
+        var janganNorth = V2Rules.Center(6509.6, 1135.7, 0f);
+        float groundNorth;
+        ExpeditionRules.TryGround(janganNorth, out groundNorth);
+        janganNorth.Height = groundNorth;
+        A(TradeRoutes.InJangan(janganNorth) && TradeRoutes.InJangan(janganTrader) && !TradeRoutes.InJangan(donwhangTrader) && !TradeRoutes.InJangan(hotanTrader),
+            "Jangan's walls contain both the trader and the city centre");
+        foreach (var origin in new[] { janganNorth, janganTrader })
+        {
+            var gatePlan = TradeRoutes.PlanWalk(origin, donwhangTrader);
+            var gatePoints = new[] { origin }.Concat(gatePlan.Select(st => st.To.Point())).ToList();
+            A(gatePoints.Min(q => q.Distance(southSoldier)) < 40 && gatePoints.Min(q => q.Distance(eastSoldier)) > 100,
+                "From inside Jangan (" + (int)origin.X + "," + (int)origin.Y + ") the caravan leaves by the south gate, not the east gate");
+        }
+        var backPlan = TradeRoutes.PlanWalk(donwhangTrader, janganNorth);
+        A(backPlan.Select(st => st.To.Point()).Min(q => q.Distance(southSoldier)) < 40, "Entering Jangan the caravan also uses the south gate");
         var scriptSteps = TradeRoutes.PlanWalk(hotanTrader, donwhangTrader);
         string scriptText = TradeRoutes.Script("Hotan", "Donwhang", hotanTrader, scriptSteps);
         A(scriptText.Contains("# feribot: GATE_NPC_KT_FERRY2") && scriptText.Contains("1 feribot geçişi"), "Script marks the ferry crossing");
@@ -600,6 +618,10 @@ class V3Checks
         A(explorerGrid.Rows.Count == 52 && Convert.ToInt32(explorerGrid.Rows[51].Cells["N"].Value) == 52, "Explorer page lists the 52 spots");
         var explorerArea = (ComboBox)typeof(MemorySelectV3Form).GetField("explorerArea", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
         A(explorerArea.Items.Count == 8, "Explorer page offers the whole map and seven areas");
+        var backgroundWalk = (CheckBox)typeof(MemorySelectV3Form).GetField("backgroundWalk", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+        A(backgroundWalk.Checked && new V3Settings().BackgroundWalk, "Walking jobs may run in the background by default");
+        A(!(bool)typeof(MemorySelectV3Form).GetMethod("CommandsAllowed", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, null),
+            "Without a connected game no command is allowed");
         var dg =(DataGridView)typeof(MemorySelectV3Form).GetField("dungeonGrid", flags).GetValue(form);
         A(dg.Rows.Count == 18, "Solo Trial selected by default");
         foreach (CheckBox check in (List<CheckBox>)typeof(MemorySelectV3Form).GetField("grimModes", flags).GetValue(form))

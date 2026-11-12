@@ -39,6 +39,8 @@ static class Native
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
+    internal static extern bool IsIconic(IntPtr window);
+    [DllImport("user32.dll")]
     internal static extern uint GetWindowThreadProcessId(IntPtr window, out uint pid);
     [DllImport("user32.dll", SetLastError = true)]
     internal static extern bool RegisterHotKey(IntPtr window, int id, uint modifiers, uint key);
@@ -593,6 +595,21 @@ sealed class GameReader : IDisposable
                 ItemType(item.Model) == item.Type;
         }
         catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    // A minimised client may stop updating its world, so background work waits for the window to be restored.
+    internal bool IsMinimized()
+    {
+        try
+        {
+            Process.Refresh();
+            IntPtr window = Process.MainWindowHandle;
+            return window != IntPtr.Zero && Native.IsIconic(window);
+        }
+        catch
         {
             return false;
         }

@@ -724,6 +724,9 @@ sealed partial class MemorySelectV3Form : Form
         ConfigureCheck(travelMount, "Dungeon’a giderken ata bin · Oyundaki aktif mount", false, 0);
         row.Controls.Add(travelMount);
         row = Line(card);
+        ConfigureCheck(backgroundWalk, "Yürüyüş işleri arka planda da çalışsın (Explorer, kervan, dungeon yolu)", true, 0);
+        row.Controls.Add(backgroundWalk);
+        row = Line(card);
         ConfigureCheck(returnBeforeTravel, "Farklı bölgeye giderken önce Return Scroll kullan · İsteğe bağlı", false, 0);
         row.Controls.Add(returnBeforeTravel);
 
@@ -811,6 +814,7 @@ sealed partial class MemorySelectV3Form : Form
                 mobList.Items.Add(name);
         returnBeforeTravel.Checked = settings.ReturnBeforeTravel;
         travelMount.Checked = settings.TravelMount;
+        backgroundWalk.Checked = settings.BackgroundWalk;
         uniqueAlertBox.Checked = settings.UniqueAlert;
         skillListBox.Checked = settings.SkillList;
         if (settings.Skills != null && settings.Skills.Count > 0)
@@ -864,6 +868,7 @@ sealed partial class MemorySelectV3Form : Form
         settings.QueueReturnScroll = queueReturnScroll.Checked;
         settings.ReturnBeforeTravel = returnBeforeTravel.Checked;
         settings.TravelMount = travelMount.Checked;
+        settings.BackgroundWalk = backgroundWalk.Checked;
         settings.UniqueAlert = uniqueAlertBox.Checked;
         settings.SkillList = skillListBox.Checked;
         settings.Skills = SkillSlotsFromGrid();
