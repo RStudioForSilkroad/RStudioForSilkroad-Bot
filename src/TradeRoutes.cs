@@ -190,8 +190,8 @@ sealed partial class MemorySelectV3Form
     {
         var page = new TabPage("Kervan Rotası");
         tabs.TabPages.Add(page);
-        var content = PageCard(page, "Kervan rotası", 820);
-        var intro = new Label { AutoSize = false, Width = 760, Height = 88, Tag = "muted", Margin = new Padding(0, 0, 0, 8), Text =
+        var content = PageCard(page, "Kervan rotası", 940);
+        var intro = new Label { AutoSize = true, MaximumSize = new Size(900, 0), Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
             "Ticaret malı ışınlanamaz: rota yürüyerek hesaplanır, teleport, Return Scroll ve binek kullanılmaz. Nehir geçişlerinde (örneğin Hotan - Donwhang) " +
             "en uygun feribot geçidi seçilir ve karakter feribot NPC’sine kendisi tıklayıp karşıya geçer. " +
             "Önce her şehirde tüccar NPC’ye oyunda tıklayıp “Seçili NPC’yi kaydet” düğmesine bas; konum bir kez öğrenilir." };
@@ -203,32 +203,35 @@ sealed partial class MemorySelectV3Form
             var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0, 0, 0, 2) };
             var name = LabelOf(town, 110);
             name.Font = Ui.BodyBold;
-            var state = new Label { AutoSize = false, Width = 560, Height = 30, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 1, 0, 1) };
+            var state = new Label { AutoSize = false, Width = 760, Height = 30, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 1, 0, 1) };
             tradeNpcLabels[town] = state;
             row.Controls.Add(name);
             row.Controls.Add(state);
             content.Controls.Add(row);
         }
-        var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0, 6, 0, 10) };
+        var actions = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0, 4, 0, 6) };
         actions.Controls.Add(Btn("Seçili NPC’yi kaydet", RecordTradeNpc, 190, true, ButtonKind.Primary));
         actions.Controls.Add(Btn("Kayıtları temizle", ClearTradeNpcs, 160, true, ButtonKind.Ghost));
         content.Controls.Add(actions);
 
         content.Controls.Add(SectionTitle("Rotalar"));
+        // Three routes per row: the route button and its script button side by side.
+        var grid = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, MaximumSize = new Size(920, 0),
+            Margin = new Padding(0) };
         foreach (string[] route in TradeRoutes.Routes)
         {
             string from = route[0], to = route[1];
-            var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0, 0, 0, 2) };
-            row.Controls.Add(Btn(from + " - " + to + " Sc", delegate { StartCaravan(from, to); }, 200, true, ButtonKind.Success));
-            row.Controls.Add(Btn("Script dosyası", delegate { ExportCaravanScript(from, to, true); }, 150, false));
-            content.Controls.Add(row);
+            var cell = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0, 0, 14, 0) };
+            cell.Controls.Add(Btn(from + " - " + to + " Sc", delegate { StartCaravan(from, to); }, 190, true, ButtonKind.Success));
+            cell.Controls.Add(Btn("Script", delegate { ExportCaravanScript(from, to, true); }, 80, false));
+            grid.Controls.Add(cell);
         }
+        content.Controls.Add(grid);
         content.Controls.Add(Btn("Script klasörünü aç", OpenScriptFolder, 190, false, ButtonKind.Ghost));
-        caravanStatus.AutoSize = false;
-        caravanStatus.Width = 760;
-        caravanStatus.Height = 54;
+        caravanStatus.AutoSize = true;
+        caravanStatus.MaximumSize = new Size(900, 0);
         caravanStatus.Tag = "muted";
-        caravanStatus.Margin = new Padding(0, 6, 0, 0);
+        caravanStatus.Margin = new Padding(0, 2, 0, 6);
         caravanStatus.Text = "Rota düğmesi scripti yazar ve karakteri hedef tüccara yürütür.";
         content.Controls.Add(caravanStatus);
 
@@ -238,7 +241,7 @@ sealed partial class MemorySelectV3Form
 
     static Label SectionTitle(string text)
     {
-        return new Label { Text = text, Font = Ui.Heading, AutoSize = false, Width = 760, Height = 30, TextAlign = ContentAlignment.MiddleLeft,
+        return new Label { Text = text, Font = Ui.Heading, AutoSize = false, Width = 900, Height = 30, TextAlign = ContentAlignment.MiddleLeft,
             Margin = new Padding(0, 4, 0, 2) };
     }
 

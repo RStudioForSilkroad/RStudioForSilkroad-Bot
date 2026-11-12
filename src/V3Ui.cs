@@ -480,6 +480,8 @@ sealed partial class MemorySelectV3Form : Form
             WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0) };
         card.Controls.Add(content);
         scroller.Controls.Add(card);
+        // The card grows with the window (up to a comfortable width) instead of staying a narrow strip on the left.
+        scroller.Resize += delegate { card.MinimumSize = new Size(Math.Max(width, Math.Min(1180, scroller.ClientSize.Width - 2 * Ui.Pad)), 0); };
         page.Controls.Add(scroller);
         return content;
     }

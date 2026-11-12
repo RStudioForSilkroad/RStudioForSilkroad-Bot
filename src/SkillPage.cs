@@ -63,7 +63,7 @@ sealed partial class MemorySelectV3Form
         ConfigureCheck(skillListBox, "Skill listesini kullan · Av / Ayarlar’daki Tuşlar kutusu yerine geçer", false, 0);
         row.Controls.Add(skillListBox);
         row = SkillRow(content);
-        ConfigureCheck(backgroundKeys, "Oyun önde değilken de tuşları gönder (arka plan)", false, 0);
+        ConfigureCheck(backgroundKeys, "Tuşlu satırlar: oyun önde değilken de tuş gönder (bu istemcide çalışmıyor; skill’leri kimlikle kullan)", false, 0);
         row.Controls.Add(backgroundKeys);
         row.Controls.Add(Btn("Arka plan tuşunu sına", BackgroundKeyTest, 210, false, ButtonKind.Secondary));
         row = SkillRow(content);
@@ -164,8 +164,8 @@ sealed partial class MemorySelectV3Form
             "Tuşu boş, Skill ID’si dolu satır tuşsuz çalışır: bot skill’i kimliğiyle kullanır ve oyunun önde olması gerekmez. Tuşlu satır tuşa basar.\r\n" +
             "Acil: can yüzdesi sınırın altına inince ya da “En az mob” kadar canavar etrafı sarınca basılır; Skill ID varsa buff zaten açıksa basılmaz.\r\n" +
             "İyileştirme / Mana: HP / MP yüzdesi sınırın altına inince basılır. Öncelik: acil, iyileştirme, mana, buff, saldırı.\r\n" +
-            "Arka plan: tuşlar oyun penceresine Windows mesajıyla gönderilir; oyun ön planda değilken de çalışır ama istemcinin bunu kabul ettiği " +
-            "“Arka plan tuşunu sına” ile doğrulanmalıdır. Pencere simge durumundaysa bekler." };
+            "Arka plan: tuşlar oyun penceresine Windows mesajıyla gider. Canlı sınamada bu istemci oyun arkadayken tuşu işlemedi (öndeyken işledi); bu yüzden " +
+            "arka planda çalışmak için skill’leri “Karakterin skilleri” listesinden seçip tuşsuz ekle: kimlikle kullanım oyun arkadayken ve gizliyken de çalışır. Pencere simge durumundaysa bekler." };
         content.Controls.Add(help);
         LoadSkillRows(DefaultSkills());
         templateBox.SelectedIndex = 0;
@@ -468,11 +468,18 @@ sealed partial class MemorySelectV3Form
         RequireReader();
         if (active)
             throw new InvalidOperationException("Önce çalışan işi durdur.");
-        if (skillGrid.CurrentRow == null)
-            throw new InvalidOperationException("Sınamak için listeden bir skill satırı seç; o satırın tuşu basılır.");
-        bgKey = SkillRotation.ParseKey(CellText(skillGrid.CurrentRow.Cells["Key"].Value));
-        if (bgKey == 0)
-            throw new InvalidOperationException("Seçili satırın tuşu geçersiz.");
+        // The selected line, or else the first line that has a usable key.
+        DataGridViewRow keyRow = skillGrid.CurrentRow;
+        if (keyRow == null || SkillRotation.ParseKey(CellText(keyRow.Cells["Key"].Value)) == 0)
+        {
+            if (keyRow != null && CellText(keyRow.Cells["Key"].Value).Length == 0 && ToInt(keyRow.Cells["SkillId"].Value, 0) > 0)
+                throw new InvalidOperationException("Seçili satırın tuşu yok: Skill ID’li satır kimlikle kullanılır ve oyun arkadayken de çalışır. " +
+                    "Sınamak için “Kimlikle sına”yı kullan; “Arka plan tuşunu sına” tuşlu satırlar içindir.");
+            keyRow = skillGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => SkillRotation.ParseKey(CellText(r.Cells["Key"].Value)) != 0);
+            if (keyRow == null)
+                throw new InvalidOperationException("Tuşlu bir skill satırı yok. Tuşsuz (Skill ID’li) satırlar zaten arka planda çalışır; “Kimlikle sına” ile dene.");
+        }
+        bgKey = SkillRotation.ParseKey(CellText(keyRow.Cells["Key"].Value));
         if (ClientWindow() == IntPtr.Zero)
             throw new InvalidOperationException("Oyun penceresi bulunamadı.");
         bgPhase = 1;
@@ -531,7 +538,8 @@ sealed partial class MemorySelectV3Form
             FinishBackgroundTest(true, "ÇALIŞTI. Oyun arkadayken tuş işlendi; arka plan tuşlarını açık bırakabilirsin.");
         else if (now > bgUntil)
             FinishBackgroundTest(false, "ÇALIŞMADI. Tuş gönderildi ama mana düşmedi, yeni buff gelmedi (mana ya da hedef yoksa da böyle olur). " +
-                "Buff kullanan bir satırla tekrar dene; yine olmazsa bu istemci arka plan tuşunu kabul etmiyor, oyun önde kalmalı. Arka plan tuşları kapatıldı.");
+                "Buff kullanan bir satırla tekrar dene. Canlı oyunda ölçüldü: bu istemci oyun arkadayken klavye mesajını işlemiyor (öndeyken işliyor). " +
+                "Arka planda çalışmak için skill’i “Karakterin skilleri” listesinden seçip tuşsuz ekle; kimlikle kullanım arkada da çalışır. Arka plan tuşları kapatıldı.");
     }
 
     // Sends one key to the game window with Windows keyboard messages; the release follows from the release timer.

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.ComponentModel;
+using System.Drawing;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
@@ -359,14 +360,17 @@ sealed partial class MemorySelectV3Form : Form
     readonly System.Windows.Forms.Timer updateTimer = new System.Windows.Forms.Timer();
     BackgroundWorker updateWorker;
     StagedUpdate stagedUpdate;
-    long nextUpdateCheck;
+    long nextUpdateCheck, updateApplyAt;
+    // The check runs every 15 seconds and a newer version is installed at once: it cannot be switched off.
+    internal const int UpdateCheckSeconds = 15, UpdateGraceSeconds = 5;
+    internal readonly Label updateBanner = new Label();
 
     void BuildUpdateControls()
     {
         var page = new TabPage("Güncelleme/Kılavuz");
         tabs.TabPages.Add(page);
         var panel = PageCard(page, "Güncelleme ve kılavuz", 780);
-        autoUpdate.Text = "Otomatik güncelleme kontrolü";
+        autoUpdate.Text = "Zorunlu güncelleme kontrolü · " + UpdateCheckSeconds + " saniyede bir, yeni sürüm hemen kurulur";
         autoUpdate.AutoSize = true;
         autoUpdate.Margin = new Padding(0, 0, 0, 8);
         panel.Controls.Add(autoUpdate);
@@ -393,7 +397,8 @@ sealed partial class MemorySelectV3Form : Form
 
     void RestoreUpdateControls()
     {
-        autoUpdate.Checked = settings.AutoUpdate;
+        autoUpdate.Checked = true;
+        autoUpdate.Enabled = false;
         updateUrl.Text = string.IsNullOrWhiteSpace(settings.UpdateManifestUrl) ?
             UpdateTrust.DefaultManifestUrl : settings.UpdateManifestUrl;
         updateStatus.Text = string.IsNullOrWhiteSpace(updateUrl.Text) ?
@@ -403,21 +408,44 @@ sealed partial class MemorySelectV3Form : Form
     void SetupUpdates()
     {
         UpdateService.Acknowledge();
-        updateTimer.Interval = 2000;
+        // A red bar across the top of the window: shown the moment a newer version is found.
+        updateBanner.Dock = DockStyle.Top;
+        updateBanner.Height = 46;
+        updateBanner.Font = Ui.Heading;
+        updateBanner.TextAlign = ContentAlignment.MiddleCenter;
+        updateBanner.Visible = false;
+        Controls.Add(updateBanner);
+        updateBanner.SendToBack();
+        updateTimer.Interval = 1000;
         updateTimer.Tick += delegate
         {
             if (stagedUpdate != null)
             {
+                long left = (updateApplyAt - clock.ElapsedMilliseconds + 999) / 1000;
+                if (left > 0)
+                {
+                    updateBanner.Text = "KRİTİK GÜNCELLEME · Sürüm " + stagedUpdate.Manifest.Version + " yayınlandı · " + left +
+                        " sn içinde güncelleniyor, uygulama kapanıp yeniden açılacak. Güncelleme yapın.";
+                    return;
+                }
                 TryApplyUpdate();
                 return;
             }
             if (autoUpdate.Checked && !string.IsNullOrWhiteSpace(updateUrl.Text) && clock.ElapsedMilliseconds >= nextUpdateCheck)
             {
-                nextUpdateCheck = clock.ElapsedMilliseconds + 15 * 60 * 1000;
+                nextUpdateCheck = clock.ElapsedMilliseconds + UpdateCheckSeconds * 1000;
                 CheckUpdates();
             }
         };
         updateTimer.Start();
+    }
+
+    void ShowUpdateBanner(string text)
+    {
+        updateBanner.Text = text;
+        updateBanner.Visible = true;
+        updateBanner.SendToBack();
+        PerformLayout();
     }
 
     void CheckUpdates()
@@ -439,8 +467,8 @@ sealed partial class MemorySelectV3Form : Form
                 return;
             if (e.Error != null)
             {
-                updateStatus.Text = "Güncelleme yapılamadı; mevcut sürüm korunuyor: " + e.Error.Message;
-                Log(e.Error.Message);
+                // A failed check is not shown as a warning every 15 seconds; the next one follows.
+                updateStatus.Text = "Güncelleme kontrolü başarısız (15 sn sonra yeniden denenecek): " + e.Error.Message;
                 return;
             }
             stagedUpdate = e.Result as StagedUpdate;
@@ -451,7 +479,10 @@ sealed partial class MemorySelectV3Form : Form
             }
             updateStatus.Text = "Yeni sürüm doğrulandı: " + stagedUpdate.Manifest.Version +
                 ". Uygulama yeniden açılacak.";
-            TryApplyUpdate();
+            Log("Kritik güncelleme: " + stagedUpdate.Manifest.Version + " bulundu, " + UpdateGraceSeconds + " sn içinde kurulacak.");
+            updateApplyAt = clock.ElapsedMilliseconds + UpdateGraceSeconds * 1000;
+            ShowUpdateBanner("KRİTİK GÜNCELLEME · Sürüm " + stagedUpdate.Manifest.Version + " yayınlandı · " + UpdateGraceSeconds +
+                " sn içinde güncelleniyor, uygulama kapanıp yeniden açılacak. Güncelleme yapın.");
         };
         updateWorker.RunWorkerAsync();
     }
@@ -463,6 +494,7 @@ sealed partial class MemorySelectV3Form : Form
         if (transaction.Pending || (active && recovery.Phase != RecoveryPhase.Ready))
         {
             updateStatus.Text = "Güncelleme hazır; bekleyen eşya / ölüm işleminin bitmesi bekleniyor.";
+            ShowUpdateBanner("KRİTİK GÜNCELLEME · Sürüm " + stagedUpdate.Manifest.Version + " hazır · bekleyen eşya / ölüm işlemi bitince hemen kurulacak.");
             return;
         }
         try
@@ -479,6 +511,7 @@ sealed partial class MemorySelectV3Form : Form
         {
             SkipClosePrompt = false;
             stagedUpdate = null;
+            updateBanner.Visible = false;
             updateStatus.Text = "Güncelleme başlatılamadı; mevcut sürüm korunuyor: " + e.Message;
             Log(e.ToString());
         }

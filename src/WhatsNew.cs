@@ -16,7 +16,14 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.11.0.0", Title = "Skill seçimi, Explorer konuşması ve yeni Dungeon düzeni",
+    internal static readonly Entry[] All = { new Entry { Version = "3.12.0.0", Title = "Skill listesi okunuyor, zorunlu güncelleme ve yeni Kervan sayfası",
+        Items = new[] { "“Skilleri oku” artık karakterin öğrendiği skill’leri gerçekten buluyor (canlı oyunda doğrulandı: 66 skill, adı ve seviyesiyle). İpucu gerekmez; yaklaşık 6 saniye sürer.",
+        "Skill’i kimliğiyle kullanma canlı oyunda doğrulandı: tuşsuz satır skill’i istemciye kimlikle bildirir, buff gelir, mana düşer; oyun arkada ya da gizliyken de çalışır.",
+        "Arka plan tuşu: ölçüldü, bu istemci klavye mesajını yalnız oyun öndeyken işliyor. Arka planda çalışmak için skill’leri listeden seçip tuşsuz ekle. “Arka plan tuşunu sına” tuşlu satırı kendisi seçer, tuşsuz satırda “Kimlikle sına”ya yönlendirir.",
+        "Explorer: “Seçili NPC ile konuş” düğmesi eklendi; seçenek numarasını oyunda elle denemek içindir.",
+        "Güncelleme: yeni sürüm 15 saniyede bir aranır ve bulunursa kapatılamaz biçimde kurulur. Ekranın üstünde kırmızı KRİTİK GÜNCELLEME uyarısı çıkar, geri sayımdan sonra uygulama kendini günceller.",
+        "Kervan sayfası yeniden düzenlendi: boşluk kalktı, kart pencereye göre genişler, rotalar üçerli sıralanır. Tüm kart sayfaları pencereyle birlikte genişler." } },
+        new Entry { Version = "3.11.0.0", Title = "Skill seçimi, Explorer konuşması ve yeni Dungeon düzeni",
         Items = new[] { "Skiller sayfasına “Karakterin skilleri” bölümü eklendi: “Skilleri oku” karakterin öğrendiği skill’leri oyun belleğinden bulur; adı, seviyesi ve Skill ID’siyle listelenir. Bulunamazsa “Tüm skiller” ile oyunun skill tablosunda ada göre aranır.",
         "Seçilen skill “Listeye ekle” ile tuşsuz eklenir. Tuşu boş, Skill ID’si dolu satırı bot skill’i kimliğiyle kullanır; hotbar tuşu gerekmez ve oyunun önde olması gerekmez. Tuşlu satırlar eskisi gibi tuşa basar. “Kimlikle sına” düğmesi bir skill’i bir kez gönderip mana ve buff değişimine bakar.",
         "Explorer: NPC seçilip onaylanınca bot artık NPC ile konuşur ve konuşma seçeneğini seçer (varsayılan 1. seçenek; “NPC’ye tıkla ve konuşma seçeneğini seç” ve “Seçenek no” ayarları). Nokta, konuşma isteği gönderildikten sonra bulundu sayılır.",

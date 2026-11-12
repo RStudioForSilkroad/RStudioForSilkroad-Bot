@@ -530,6 +530,7 @@ sealed partial class MemorySelectV3Form
                 SaveSettingsQuietly();
         };
         optionRow.Controls.Add(explorerOption);
+        optionRow.Controls.Add(Btn("Seçili NPC ile konuş", TalkSelectedNpc, 170, false, ButtonKind.Ghost));
         actions.Controls.Add(optionRow);
         actions.Controls.Add(Btn("Bulunanları sıfırla", ResetExplorerProgress, 170, true, ButtonKind.Ghost));
         explorerStatus.AutoSize = false;
@@ -690,6 +691,25 @@ sealed partial class MemorySelectV3Form
         SaveSettingsQuietly();
         Log("Explorer NPC modeli: " + npc.Model);
         status.Text = "Explorer NPC modeli " + npc.Model + " olarak ayarlandı.";
+    }
+
+    // Tries the chosen dialog option on the NPC selected in the client (to find the right option number by hand).
+    void TalkSelectedNpc()
+    {
+        RequireReader();
+        snapshot = reader.Capture();
+        if (snapshot.Selected == 0)
+            throw new InvalidOperationException("Önce oyunda NPC’ye tıkla; sonra tekrar dene.");
+        var npc = snapshot.Npcs.FirstOrDefault(n => n.Uid == snapshot.Selected);
+        if (npc == null)
+            throw new InvalidOperationException("Seçili hedef bir NPC olarak okunamadı.");
+        int option = (int)explorerOption.Value;
+        bool sent;
+        using (var s = new TargetSender(reader))
+            sent = s.Talk(npc.Uid, option);
+        Log("NPC ile konuşma · model " + npc.Model + " · seçenek " + option + " · " + (sent ? "gönderildi" : "reddedildi"));
+        status.Text = sent ? "Konuşma isteği gönderildi (seçenek " + option + "). Oyunda ne olduğuna bak; olmadıysa başka bir seçenek no dene." :
+            "İstemci konuşma isteğini reddetti.";
     }
 
     void StartExplorer(int from, bool single)

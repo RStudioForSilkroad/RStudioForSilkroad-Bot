@@ -147,11 +147,8 @@ sealed partial class MemorySelectV3Form
             seeds = MacroSeeds();
             source = "oyunun makro ayarı";
         }
-        if (seeds.Count == 0)
-            throw new InvalidOperationException("Karakterin bilinen bir skill’i bulunamadı. Oyunda bir buff aç ya da listeye bir Skill ID yaz " +
-                "ve tekrar dene; bu skill, listeyi bellekte bulmak için ipucu olarak kullanılır.");
         skillScanning = true;
-        learnedInfo.Text = "Taranıyor (" + seeds.Count + " ipucu · " + source + ")… oyun belleği okunuyor, birkaç saniye sürebilir.";
+        learnedInfo.Text = "Taranıyor… oyun belleği okunuyor, birkaç saniye sürebilir.";
         var game = reader;
         ThreadPool.QueueUserWorkItem(delegate
         {
@@ -185,7 +182,7 @@ sealed partial class MemorySelectV3Form
         }
         else
         {
-            learnedInfo.Text = ids.Count + " skill bulundu · " + report + " · ipucu: " + source + ". Listeden seç, “Listeye ekle”.";
+            learnedInfo.Text = ids.Count + " skill bulundu · " + report + ". Listeden seç, “Listeye ekle”.";
             Log("Skill taraması: " + ids.Count + " skill · " + report);
         }
         learnedAll.Checked = false;

@@ -5,22 +5,20 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 
-delegate byte[] MemoryRead(uint address, int size);
-
-// Finds the character's learned-skill list in the game's memory without a fixed address. The client keeps such lists as red-black
-// trees (std::map: left, parent, right pointers, then the key). A tree whose keys are all real skill ids and that holds the skills the
-// character is known to have (active buffs, ids already typed in the list) is the learned-skill tree. Read only.
+// Finds the character's learned-skill list in the game's memory without a fixed address.
+// The client keeps it as a tree whose nodes read: pointer, pointer, skill id, the skill's level, ... (checked on the live client: 66 skills of
+// a level 86 character, one level of each skill family, every level equal to the one in the game's skill table). Nodes that look like that are
+// joined by their pointers into groups; the group whose levels match the skill table, and that holds the skills the character is known to have
+// (active buffs, ids already in the list), is the learned-skill list. The game's whole skill table (about 5400 nodes) is too big to be taken.
 static class SkillScan
 {
-    internal sealed class Tree
+    internal struct Rec
     {
-        internal uint Header;
-        internal bool Truncated;
-        internal readonly List<uint> Keys = new List<uint>();
-        internal readonly List<uint> Nodes = new List<uint>();
+        internal uint Addr, P0, P1, Key, Level;
     }
 
     const uint HeapLow = 0x10000, HeapHigh = 0xFFFF0000;
+    internal const int MaxSkills = 1500;
 
     static uint U(byte[] b, int at)
     {
@@ -32,134 +30,83 @@ static class SkillScan
         return p >= HeapLow && p < HeapHigh && (p & 3) == 0;
     }
 
-    // Addresses of nodes in the buffer that look like a tree node whose key is a skill id.
-    internal static List<uint> Candidates(byte[] buffer, int length, uint baseAddress, bool[] valid)
+    // Nodes in a buffer: two pointers (or zero), then a skill id, then the dword after it (the level).
+    internal static void Candidates(byte[] buffer, int length, uint baseAddress, bool[] valid, List<Rec> into)
     {
-        var found = new List<uint>();
         if (valid == null || valid.Length == 0)
-            return found;
-        for (int i = 12; i + 4 <= length; i += 4)
+            return;
+        for (int i = 8; i + 8 <= length; i += 4)
         {
-            uint key = BitConverter.ToUInt32(buffer, i);
+            uint key = U(buffer, i);
             if (key == 0 || key >= valid.Length || !valid[key])
                 continue;
-            uint left = U(buffer, i - 12), parent = U(buffer, i - 8), right = U(buffer, i - 4);
-            if (!Pointer(parent) || (left != 0 && !Pointer(left)) || (right != 0 && !Pointer(right)))
+            uint p0 = U(buffer, i - 8), p1 = U(buffer, i - 4);
+            if ((p0 != 0 && !Pointer(p0)) || (p1 != 0 && !Pointer(p1)) || (p0 == 0 && p1 == 0))
                 continue;
-            found.Add(baseAddress + (uint)i - 12);
+            into.Add(new Rec { Addr = baseAddress + (uint)i - 8, P0 = p0, P1 = p1, Key = key, Level = U(buffer, i + 4) });
         }
-        return found;
     }
 
-    // The header of the tree a node belongs to (the header's parent is the root and the root's parent is the header), or 0.
-    internal static uint FindHeader(MemoryRead read, uint node)
-    {
-        uint x = node;
-        for (int step = 0; step < 90; step++)
-        {
-            uint parent = U(read(x, 12), 4);
-            if (!Pointer(parent))
-                return 0;
-            byte[] p = read(parent, 12);
-            if (U(p, 4) == x)
-                return parent;
-            if (U(p, 0) != x && U(p, 8) != x)
-                return 0;
-            x = parent;
-        }
-        return 0;
-    }
-
-    internal static Tree Walk(MemoryRead read, uint header, int limit)
-    {
-        var tree = new Tree { Header = header };
-        var stack = new Stack<uint>();
-        var seen = new HashSet<uint>();
-        stack.Push(U(read(header, 12), 4));
-        while (stack.Count > 0)
-        {
-            uint n = stack.Pop();
-            if (!Pointer(n) || n == header || !seen.Add(n))
-                continue;
-            if (seen.Count > limit)
-            {
-                tree.Truncated = true;
-                break;
-            }
-            byte[] b = read(n, 16);
-            tree.Keys.Add(U(b, 12));
-            tree.Nodes.Add(n);
-            stack.Push(U(b, 0));
-            stack.Push(U(b, 8));
-        }
-        return tree;
-    }
-
-    // Among the trees the candidate nodes belong to, the learned-skill tree: every key a real skill id, the most known skills inside,
-    // few levels of the same skill (a list of learned skills holds one level of each), then the larger one.
-    internal static Tree Choose(MemoryRead read, IEnumerable<uint> nodes, ICollection<uint> seeds, Func<uint, bool> valid,
-        Func<uint, int> family, int seconds, out string report)
+    // The learned-skill group among the nodes, or null. seeds are skills the character certainly has (they only rank the groups).
+    internal static List<Rec> Choose(List<Rec> recs, ICollection<uint> seeds, Func<uint, int> family, Func<uint, int> level, out string report)
     {
         var timer = Stopwatch.StartNew();
-        var owner = new Dictionary<uint, uint>();
-        var trees = new Dictionary<uint, Tree>();
-        var rejected = new HashSet<uint>();
-        int examined = 0, total = 0;
-        foreach (uint node in nodes)
+        var index = new Dictionary<uint, int>(recs.Count);
+        for (int i = 0; i < recs.Count; i++)
+            index[recs[i].Addr] = i;
+        var parent = new int[recs.Count];
+        for (int i = 0; i < parent.Length; i++)
+            parent[i] = i;
+        Func<int, int> find = x =>
         {
-            total++;
-            if (owner.ContainsKey(node))
-                continue;
-            if (timer.ElapsedMilliseconds > seconds * 1000L || examined >= 60000)
-                break;
-            examined++;
-            uint header;
-            try
+            while (parent[x] != x)
             {
-                header = FindHeader(read, node);
+                parent[x] = parent[parent[x]];
+                x = parent[x];
             }
-            catch (IOException)
+            return x;
+        };
+        for (int i = 0; i < recs.Count; i++)
+            foreach (uint p in new[] { recs[i].P0, recs[i].P1 })
             {
-                continue;
+                int other;
+                if (p != 0 && index.TryGetValue(p, out other))
+                    parent[find(other)] = find(i);
             }
-            if (header == 0 || rejected.Contains(header) || trees.ContainsKey(header))
-                continue;
-            try
-            {
-                var tree = Walk(read, header, 1500);
-                foreach (uint n in tree.Nodes)
-                    owner[n] = header;
-                if (tree.Truncated || tree.Keys.Count < 3 || tree.Keys.Any(k => !valid(k)))
-                    rejected.Add(header);
-                else
-                    trees[header] = tree;
-            }
-            catch (IOException)
-            {
-                rejected.Add(header);
-            }
+        var groups = new Dictionary<int, List<Rec>>();
+        for (int i = 0; i < recs.Count; i++)
+        {
+            int g = find(i);
+            List<Rec> list;
+            if (!groups.TryGetValue(g, out list))
+                groups[g] = list = new List<Rec>();
+            list.Add(recs[i]);
         }
         var wanted = new HashSet<uint>(seeds ?? new uint[0]);
-        Tree best = null;
+        List<Rec> best = null;
         double bestScore = -1;
-        foreach (var t in trees.Values)
+        int considered = 0;
+        foreach (var g in groups.Values)
         {
-            int hits = t.Keys.Count(k => wanted.Contains(k));
-            if (wanted.Count > 0 && hits == 0)
+            if (g.Count < 5 || g.Count > MaxSkills)
                 continue;
-            int families = t.Keys.Select(k => family(k) == 0 ? -(int)k : family(k)).Distinct().Count();
-            double spread = (double)families / t.Keys.Count;
-            if (spread < 0.8)
+            considered++;
+            double levels = g.Count(r => level(r.Key) > 0 && r.Level == (uint)level(r.Key)) / (double)g.Count;
+            if (levels < 0.8)
                 continue;
-            double score = hits * 100000.0 + (hits == wanted.Count ? 50000 : 0) + t.Keys.Count;
+            int families = g.Select(r => family(r.Key) == 0 ? -(int)r.Key : family(r.Key)).Distinct().Count();
+            if ((double)families / g.Count < 0.8)
+                continue;
+            int hits = g.Count(r => wanted.Contains(r.Key));
+            double score = hits * 10000.0 + g.Count;
             if (score > bestScore)
             {
                 bestScore = score;
-                best = t;
+                best = g;
             }
         }
-        report = total + " aday düğüm, " + trees.Count + " skill ağacı" + (best == null ? ", uygun ağaç yok" : ", seçilen ağaç " +
-            best.Keys.Count + " skill") + " · " + (timer.ElapsedMilliseconds / 100 / 10.0).ToString("0.0") + " sn";
+        report = recs.Count + " aday düğüm, " + considered + " grup" + (best == null ? ", uygun grup yok" : ", seçilen grup " + best.Count + " skill") +
+            " · " + (timer.ElapsedMilliseconds / 100 / 10.0).ToString("0.0") + " sn";
         return best;
     }
 
@@ -172,14 +119,15 @@ static class SkillScan
     [DllImport("kernel32.dll")]
     static extern uint VirtualQueryEx(IntPtr process, IntPtr address, out Region info, uint length);
 
-    // Reads the character's learned skills from the running game. The seeds are skill ids the character certainly has.
+    // Reads the character's learned skills from the running game.
     internal static List<uint> Read(GameReader reader, ICollection<uint> seeds, out string report)
     {
         var valid = SkillCatalog.ValidTable;
-        var nodes = new List<uint>();
+        var recs = new List<Rec>();
         uint address = 0x10000;
         IntPtr handle = reader.Handle;
-        while (address < HeapHigh && nodes.Count < 400000)
+        var timer = Stopwatch.StartNew();
+        while (address < HeapHigh && recs.Count < 3000000 && timer.ElapsedMilliseconds < 20000)
         {
             Region region;
             if (VirtualQueryEx(handle, new IntPtr(unchecked((int)address)), out region, 28) == 0)
@@ -198,14 +146,14 @@ static class SkillScan
                     UIntPtr got;
                     if (!Native.ReadProcessMemory(handle, new IntPtr(unchecked((int)part)), bytes, (UIntPtr)size, out got))
                         continue;
-                    nodes.AddRange(Candidates(bytes, (int)Math.Min(got.ToUInt64(), (ulong)size), part, valid));
+                    Candidates(bytes, (int)Math.Min(got.ToUInt64(), (ulong)size), part, valid, recs);
                 }
             }
             if (end > HeapHigh)
                 break;
             address = (uint)end;
         }
-        var tree = Choose(reader.Read, nodes, seeds, SkillCatalog.IsSkill, SkillCatalog.FamilyOf, 12, out report);
-        return tree == null ? new List<uint>() : tree.Keys.Distinct().OrderBy(k => k).ToList();
+        var group = Choose(recs, seeds, SkillCatalog.FamilyOf, SkillCatalog.LevelOf, out report);
+        return group == null ? new List<uint>() : group.Select(r => r.Key).Distinct().OrderBy(k => k).ToList();
     }
 }

@@ -133,6 +133,12 @@ static class SkillCatalog
         return info == null ? 0 : info.Family;
     }
 
+    internal static int LevelOf(uint id)
+    {
+        var info = Find(id);
+        return info == null ? 0 : info.Level;
+    }
+
     // Skills whose name contains the text (case-insensitive), the highest level of each family first.
     internal static List<SkillInfo> Search(string text, int limit)
     {

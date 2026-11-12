@@ -96,6 +96,12 @@ sealed partial class MemorySelectV3Form
                 c.Invalidate();
                 return;
             }
+            if (c == updateBanner)
+            {
+                c.BackColor = Ui.Danger;
+                c.ForeColor = Color.White;
+                return;
+            }
             if (c == sidebar)
             {
                 sidebar.BackColor = Ui.Surface;

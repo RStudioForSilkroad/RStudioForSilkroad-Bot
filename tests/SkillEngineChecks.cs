@@ -219,34 +219,17 @@ partial class V3Checks
         }
     }
 
-    // A red-black-tree-shaped map in fake memory: header (left = first, parent = root, right = last), nodes of 32 bytes, key at +12.
-    static void BuildTree(FakeMemory m, uint header, uint[] keys)
+    // Skill nodes in fake memory, 32 bytes each: pointer to the previous node, pointer to the next, skill id, level.
+    static void BuildNodes(FakeMemory m, uint start, uint[] keys, Func<uint, uint> level)
     {
-        var sorted = keys.OrderBy(k => k).ToArray();
-        uint next = header + 32;
-        Func<int, int, uint, uint> make = null;
-        make = (lo, hi, parent) =>
+        for (int i = 0; i < keys.Length; i++)
         {
-            if (lo > hi)
-                return header;
-            int mid = (lo + hi) / 2;
-            uint node = next;
-            next += 32;
-            m.Put(node + 4, parent);
-            m.Put(node + 12, sorted[mid]);
-            m.Put(node, make(lo, mid - 1, node));
-            m.Put(node + 8, make(mid + 1, hi, node));
-            return node;
-        };
-        uint root = make(0, sorted.Length - 1, header);
-        m.Put(header + 4, root);
-        uint first = root, last = root;
-        while (BitConverter.ToUInt32(m.Read(first, 4), 0) != header)
-            first = BitConverter.ToUInt32(m.Read(first, 4), 0);
-        while (BitConverter.ToUInt32(m.Read(last + 8, 4), 0) != header)
-            last = BitConverter.ToUInt32(m.Read(last + 8, 4), 0);
-        m.Put(header, first);
-        m.Put(header + 8, last);
+            uint node = start + (uint)i * 32;
+            m.Put(node, i == 0 ? 0 : node - 32);
+            m.Put(node + 4, i == keys.Length - 1 ? 0 : node + 32);
+            m.Put(node + 8, keys[i]);
+            m.Put(node + 12, level(keys[i]));
+        }
     }
 
     static void LearnedSkillChecks()
@@ -264,40 +247,46 @@ partial class V3Checks
             cells[5] = id % 2 == 0 ? "60000" : "2000";
             cells[11] = "20";
             cells[23] = (id + 1000).ToString();
-            cells[24] = "3";
+            cells[24] = ((id % 7) + 1).ToString();
             meta.Add(string.Join("\t", cells));
         }
         names.Add("9\tStrike Smash\r");
         SkillCatalog.Parse(names, meta);
         A(SkillCatalog.Loaded && SkillCatalog.Count == 61 && SkillCatalog.IsSkill(120) && !SkillCatalog.IsSkill(99) && SkillCatalog.NameOf(120) == "Skill 120",
             "The skill table is read: ids, names, and which ids are skills");
-        A(SkillCatalog.Find(120).Family == 1120 && SkillCatalog.Find(120).Level == 3 && SkillCatalog.Find(120).ReqLevel == 20 && SkillCatalog.Find(120).Time == 60000,
+        A(SkillCatalog.Find(120).Family == 1120 && SkillCatalog.Find(120).Level == 2 && SkillCatalog.Find(120).ReqLevel == 20 && SkillCatalog.Find(120).Time == 60000,
             "Family, level, required level and time come from the table");
         A(SkillCatalog.Search("strike", 10).Count == 1 && SkillCatalog.Search("s", 10).Count == 0 && SkillCatalog.Search("Skill 12", 100).Count == 10,
             "The skill table is searched by name (at least two letters)");
         A(SkillCatalog.GuessKind(SkillCatalog.Find(120)) == SkillRotation.Buff_ && SkillCatalog.GuessKind(SkillCatalog.Find(121)) == SkillRotation.Attack_,
             "A long time column suggests a buff");
 
-        // ---- the learned-skill tree is found by shape, with no fixed address ----
+        // ---- the learned-skill list is found by shape, with no fixed address ----
         var mem = new FakeMemory(0x02000000, 0x8000);
         var real = new uint[] { 101, 103, 105, 110, 112, 118, 125, 131, 140, 150 };
-        BuildTree(mem, 0x02000000, real);
-        BuildTree(mem, 0x02002000, new uint[] { 102, 104, 106, 107, 108, 109 });
-        BuildTree(mem, 0x02004000, new uint[] { 101, 120 });
-        // a decoy that is not a tree: a few skill ids in a row
+        BuildNodes(mem, 0x02000000, real, id => (uint)SkillCatalog.LevelOf(id));
+        // the same skills with levels that do not match the table (another structure), a short run, and ids in a row
+        BuildNodes(mem, 0x02002000, new uint[] { 102, 104, 106, 107, 108, 109, 111 }, id => 0);
+        BuildNodes(mem, 0x02004000, new uint[] { 101, 120 }, id => (uint)SkillCatalog.LevelOf(id));
         for (uint i = 0; i < 8; i++)
             mem.Put(0x02006000 + i * 4, 120 + i);
-        var candidates = SkillScan.Candidates(mem.Data, mem.Data.Length, mem.Base, SkillCatalog.ValidTable);
-        A(candidates.Count >= real.Length + 6, "Nodes that look like skill-id tree nodes are found in a memory buffer");
+        var recs = new List<SkillScan.Rec>();
+        SkillScan.Candidates(mem.Data, mem.Data.Length, mem.Base, SkillCatalog.ValidTable, recs);
+        A(recs.Count >= real.Length + 9, "Nodes that look like skill nodes are found in a memory buffer");
         string report;
-        var seeds = new uint[] { 105, 112, 150 };
-        var chosen = SkillScan.Choose(mem.Read, candidates, seeds, SkillCatalog.IsSkill, SkillCatalog.FamilyOf, 5, out report);
-        A(chosen != null && chosen.Header == 0x02000000 && chosen.Keys.OrderBy(k => k).SequenceEqual(real),
-            "The tree that holds the character's known skills is chosen and read completely");
-        var none = SkillScan.Choose(mem.Read, candidates, new uint[] { 159 }, SkillCatalog.IsSkill, SkillCatalog.FamilyOf, 5, out report);
-        A(none == null, "No tree is chosen when none of them holds a known skill");
-        A(SkillScan.FindHeader(mem.Read, 0x02000000 + 32) == 0x02000000, "From any node the header of its tree is found");
-        A(SkillScan.FindHeader(mem.Read, 0x02006000) == 0, "Skill ids in a row are not mistaken for a tree");
+        var chosen = SkillScan.Choose(recs, new uint[] { 105, 112, 150 }, SkillCatalog.FamilyOf, SkillCatalog.LevelOf, out report);
+        A(chosen != null && chosen.Select(r => r.Key).OrderBy(k => k).SequenceEqual(real),
+            "The group whose levels match the skill table is chosen and read completely");
+        chosen = SkillScan.Choose(recs, new uint[0], SkillCatalog.FamilyOf, SkillCatalog.LevelOf, out report);
+        A(chosen != null && chosen.Count == real.Length, "It is found without any known skill as a hint");
+        // two groups that both fit: the one holding the known skills wins
+        BuildNodes(mem, 0x02007000, new uint[] { 141, 142, 143, 144, 145, 146 }, id => (uint)SkillCatalog.LevelOf(id));
+        recs.Clear();
+        SkillScan.Candidates(mem.Data, mem.Data.Length, mem.Base, SkillCatalog.ValidTable, recs);
+        chosen = SkillScan.Choose(recs, new uint[] { 143, 144 }, SkillCatalog.FamilyOf, SkillCatalog.LevelOf, out report);
+        A(chosen != null && chosen.Count == 6 && chosen.Any(r => r.Key == 143), "Known skills decide between two groups that both fit");
+        var none = SkillScan.Choose(new List<SkillScan.Rec>(), new uint[0], SkillCatalog.FamilyOf, SkillCatalog.LevelOf, out report);
+        A(none == null, "No group is chosen from nothing");
         SkillCatalog.Clear();
         A(!SkillCatalog.Loaded && !SkillCatalog.IsSkill(120), "The table can be cleared");
 
@@ -338,6 +327,10 @@ partial class V3Checks
             A(refused, "NPC talk option " + option + " is refused");
         }
         A(new V3Settings().ExplorerTalk && new V3Settings().ExplorerTalkOption == 1, "Explorer talks to the NPC by default, option 1");
+
+        // ---- the forced update check ----
+        A(MemorySelectV3Form.UpdateCheckSeconds == 15 && MemorySelectV3Form.UpdateGraceSeconds >= 1 && MemorySelectV3Form.UpdateGraceSeconds <= 10,
+            "A newer version is looked for every 15 seconds and installed within seconds of being found");
 
         // ---- lines with an id and no key ----
         var ids = new SkillRotation();
