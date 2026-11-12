@@ -109,6 +109,9 @@ class V3Checks
 
     static void ExplorerChecks()
     {
+        // Object types read from the client: NPC = 1/2/2, monster = 1/2/1. Every NPC (traders, Explorer) must reach the snapshot.
+        A(GameReader.IsNpcType(0x144) && !GameReader.IsNpcType(0xC4) && !GameReader.IsNpcType(0x4) && !GameReader.IsNpcType(0x104),
+            "NPC object type is recognised, monsters and other objects are not");
         var all = ExplorerSpots.All;
         A(all.Count == 52 && all.Select(s => s.N).Distinct().Count() == 52 && all[0].N == 1 && all[51].N == 52, "52 Explorer spots, numbered 1-52");
         A(all.All(s => ExplorerSpots.Areas.Contains(s.Area)), "Every Explorer spot belongs to a named area");

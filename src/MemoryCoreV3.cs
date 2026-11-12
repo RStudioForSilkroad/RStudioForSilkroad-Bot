@@ -345,7 +345,8 @@ sealed class GameReader : IDisposable
                 byte[] r = Read(reference, 8);
                 ushort type = BitConverter.ToUInt16(r, 0);
                 uint model = BitConverter.ToUInt32(r, 4);
-                if (model == 36031 || model == 36032 || ExpeditionRules.Network.Gates.Any(g => g.Model == (int)model))
+                // Every NPC is listed (traders, Explorer, gates): TypeID1 1, TypeID2 2, TypeID3 2 in the client's object type.
+                if (IsNpcType(type) || model == 36031 || model == 36032 || ExpeditionRules.Network.Gates.Any(g => g.Model == (int)model))
                 {
                     snap.Npcs.Add(new WorldNpc { Uid = uid, Model = model, Address = obj, Position = ReadPosition(obj) });
                 }
@@ -383,6 +384,11 @@ sealed class GameReader : IDisposable
         if (Global(0xAEF5EC) != player || Global(0xAEF5FC) != root)
             throw new IOException("Dünya değişti; yeniden okunacak.");
         return snap;
+    }
+
+    internal static bool IsNpcType(ushort type)
+    {
+        return (type & 0x1c) == 4 && (type & 0x60) == 0x40 && (type & 0x780) == 0x100;
     }
 
     internal string ReadWideString(uint address)
