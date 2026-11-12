@@ -34,6 +34,12 @@ sealed class ObstaclePath
     internal int Queries;
     internal double ClosestDistance = double.MaxValue;
     internal int Step = 8;
+    // Answers a list of (from, to) pairs in one go (1 open, 0 blocked, -1 unknown). The search asks a node's neighbours together
+    // instead of one by one: one call of the game instead of eight.
+    internal Func<List<Position[]>, sbyte[]> Prefetch;
+    bool fetched;
+    // Wall-clock limit of one Advance with Prefetch: the answers are cheap, the window should still stay responsive.
+    internal int PrefetchMilliseconds = 40;
 
     static string PointKey(Position p)
     {
@@ -127,11 +133,71 @@ sealed class ObstaclePath
         return result;
     }
 
+    void FetchNeighbours(Position here)
+    {
+        var pairs = new List<Position[]>();
+        var keys = new List<string>();
+        for (int d = 0; d < 8; d++)
+        {
+            int nx = d == 0 || d == 4 || d == 6 ? 1 : d == 1 || d == 5 || d == 7 ? -1 : 0, ny = d == 2 || d == 4 || d == 5 ? 1 :
+                d == 3 || d == 6 || d == 7 ? -1 : 0;
+            var next = new Node { X = working.X + nx, Y = working.Y + ny, G = working.G + Step * (d < 4 ? 1 : Math.Sqrt(2)), Parent = working };
+            if (closed.Contains(next.Key))
+                continue;
+            Node old;
+            if (open.TryGetValue(next.Key, out old) && old.G <= next.G)
+                continue;
+            Position dest = At(next);
+            if (dest.X < minX || dest.X > maxX || dest.Y < minY || dest.Y > maxY || (allowed != null && !allowed(dest)))
+                continue;
+            string key = EdgeKey(here, dest);
+            if (blocked.Contains(key) || tested.ContainsKey(key) || keys.Contains(key))
+                continue;
+            bool near = false;
+            foreach (Position p in trouble)
+            {
+                double dx = dest.X - here.X, dy = dest.Y - here.Y, length = dx * dx + dy * dy;
+                double t = length < .001 ? 0 : Math.Max(0, Math.Min(1, ((p.X - here.X) * dx + (p.Y - here.Y) * dy) / length));
+                if (Math.Sqrt(Math.Pow(here.X + t * dx - p.X, 2) + Math.Pow(here.Y + t * dy - p.Y, 2)) < 2)
+                {
+                    near = true;
+                    break;
+                }
+            }
+            if (near)
+                continue;
+            pairs.Add(new[] { here, dest });
+            keys.Add(key);
+        }
+        if (pairs.Count < 2)
+            return;
+        sbyte[] answers;
+        try
+        {
+            answers = Prefetch(pairs);
+        }
+        catch (Exception)
+        {
+            return;
+        }
+        if (answers == null || answers.Length != pairs.Count)
+            return;
+        Queries += pairs.Count;
+        for (int i = 0; i < pairs.Count; i++)
+            if (answers[i] >= 0)
+                tested[keys[i]] = answers[i] == 1;
+    }
+
     internal void Advance(Func<Position, Position, bool> probe, int budget)
     {
         int used = 0, iterations = 0;
-        while (Route == null && !Failed && used < budget && iterations++ < 128)
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        if (Prefetch != null)
+            budget = Math.Max(budget, 256);
+        while (Route == null && !Failed && used < budget && iterations++ < (Prefetch != null ? 2048 : 128))
         {
+            if (Prefetch != null && clock.ElapsedMilliseconds >= PrefetchMilliseconds)
+                return;
             if (Queries >= 1500 || closed.Count >= 800)
             {
                 Failed = true;
@@ -148,6 +214,7 @@ sealed class ObstaclePath
                 open.Remove(working.Key);
                 closed.Add(working.Key);
                 direction = -1;
+                fetched = false;
             }
             Position here = At(working);
             if (here.Distance(goal) < ClosestDistance)
@@ -181,6 +248,11 @@ sealed class ObstaclePath
             {
                 working = null;
                 continue;
+            }
+            if (Prefetch != null && !fetched)
+            {
+                fetched = true;
+                FetchNeighbours(here);
             }
             int d = direction++;
             int nx = d == 0 || d == 4 || d == 6 ? 1 : d == 1 || d == 5 || d == 7 ? -1 : 0, ny = d == 2 || d == 4 || d == 5 ?
@@ -229,6 +301,13 @@ enum RouteResult
 sealed class ObstacleWalker
 {
     readonly ObstaclePath planner = new ObstaclePath();
+
+    // Lets the search ask the game for a node's neighbours in one call (see ObstaclePath.Prefetch).
+    internal Func<List<Position[]>, sbyte[]> Prefetch
+    {
+        set { planner.Prefetch = value; }
+    }
+
     Position goal, lastGood, segmentStart, command, rollback;
     int index, replans, rejections;
     long nextSend, progressAt;

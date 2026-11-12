@@ -673,7 +673,7 @@ sealed class TargetSender : IDisposable
 {
     readonly IntPtr process;
     readonly uint function, moveFunction, reverseFunction, navigationFunction;
-    IntPtr pendingThread, pendingBlock;
+    IntPtr pendingThread, pendingBlock, pendingBlock2;
 
     internal TargetSender(GameReader reader)
     {
@@ -806,6 +806,119 @@ sealed class TargetSender : IDisposable
         return Execute(b => BuildCall(b, reverseFunction, new uint[] { (uint)(item.Slot - 13), 2 }, new byte[0]));
     }
 
+    // Up to BatchMax navigation queries in one call of the game: one remote thread instead of one per query (a thread costs about 3 ms,
+    // the query itself almost nothing). Each result byte is the function's raw answer (0 / 1; anything else means "no answer").
+    internal const int BatchMax = 16, BatchCodeLimit = 3072;
+
+    internal static byte[] BuildProbeBatch(uint resultBlock, uint fn, IList<uint[]> calls)
+    {
+        if (calls == null || calls.Count == 0 || calls.Count > BatchMax)
+            throw new ArgumentException("Geçersiz toplu çağrı.");
+        var bytes = new List<byte> { 0x55, 0x8b, 0xec };
+        for (int i = 0; i < calls.Count; i++)
+        {
+            if (calls[i].Length != 8)
+                throw new ArgumentException("Navigasyon çağrısı 8 bağımsız değişken ister.");
+            for (int k = 7; k >= 0; k--)
+            {
+                bytes.Add(0x68);
+                bytes.AddRange(BitConverter.GetBytes(calls[i][k]));
+            }
+            bytes.Add(0xb8);
+            bytes.AddRange(BitConverter.GetBytes(fn));
+            bytes.AddRange(new byte[] { 0xff, 0xd0, 0x83, 0xc4, 32 });
+            bytes.Add(0xa2);
+            bytes.AddRange(BitConverter.GetBytes(resultBlock + (uint)i));
+        }
+        // xor eax, eax ; mov esp, ebp ; pop ebp ; ret 4
+        bytes.AddRange(new byte[] { 0x33, 0xc0, 0x8b, 0xe5, 0x5d, 0xc2, 0x04, 0x00 });
+        if (bytes.Count > BatchCodeLimit)
+            throw new ArgumentException("Toplu çağrı çok uzun.");
+        return bytes.ToArray();
+    }
+
+    // 1 = open, 0 = blocked, -1 = the game gave no 0/1 answer for that pair (ask it again on its own).
+    internal sbyte[] NavigationProbeMany(IList<Position[]> pairs)
+    {
+        if (navigationFunction == 0)
+            throw new InvalidOperationException("Navigasyon bağlamı doğrulanmadı.");
+        var calls = new List<uint[]>();
+        foreach (var pair in pairs)
+        {
+            if (!pair[0].Outside || !pair[1].Outside)
+                throw new InvalidOperationException("Navigasyon bağlamı doğrulanmadı.");
+            calls.Add(new uint[]
+            {
+                pair[0].Region, V2Rules.Bits(pair[0].LocalX), V2Rules.Bits(pair[0].Height), V2Rules.Bits(pair[0].LocalY), pair[1].Region,
+                V2Rules.Bits(pair[1].LocalX), V2Rules.Bits(pair[1].Height), V2Rules.Bits(pair[1].LocalY)
+            });
+        }
+        byte[] raw = ExecuteBatch(resultBlock => BuildProbeBatch(resultBlock, navigationFunction, calls), calls.Count);
+        var answers = new sbyte[raw.Length];
+        for (int i = 0; i < raw.Length; i++)
+            answers[i] = raw[i] > 1 ? (sbyte)-1 : (sbyte)raw[i];
+        return answers;
+    }
+
+    byte[] ExecuteBatch(Func<uint, byte[]> build, int count)
+    {
+        if (pendingThread != IntPtr.Zero)
+            throw new IOException("Önceki çağrı tamamlanmadı; yeniden denenmez.");
+        // Two pages: the code (made executable, never writable afterwards) and a plain data page the queries write their answers into.
+        IntPtr block = Native.VirtualAllocEx(process, IntPtr.Zero, (UIntPtr)4096, 0x3000, 4);
+        if (block == IntPtr.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error());
+        IntPtr results = Native.VirtualAllocEx(process, IntPtr.Zero, (UIntPtr)4096, 0x3000, 4);
+        if (results == IntPtr.Zero)
+        {
+            int error = Marshal.GetLastWin32Error();
+            Native.VirtualFreeEx(process, block, UIntPtr.Zero, 0x8000);
+            throw new Win32Exception(error);
+        }
+        IntPtr thread = IntPtr.Zero;
+        bool free = true;
+        try
+        {
+            byte[] code = build(Native.Addr(results));
+            UIntPtr written;
+            if (!Native.WriteProcessMemory(process, block, code, (UIntPtr)code.Length, out written) || written.ToUInt64() != (ulong)code.Length)
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            uint old;
+            if (!Native.VirtualProtectEx(process, block, (UIntPtr)4096, 0x20, out old))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (!Native.FlushInstructionCache(process, block, (UIntPtr)code.Length))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            uint tid;
+            thread = Native.CreateRemoteThread(process, IntPtr.Zero, UIntPtr.Zero, block, IntPtr.Zero, 0, out tid);
+            if (thread == IntPtr.Zero)
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            if (Native.WaitForSingleObject(thread, 1000 + 20 * (uint)count) != 0)
+            {
+                pendingThread = thread;
+                pendingBlock = block;
+                pendingBlock2 = results;
+                free = false;
+                thread = IntPtr.Zero;
+                throw new IOException("Oyun çağrısı tamamlanmadı; durduruldu.");
+            }
+            var buffer = new byte[count];
+            UIntPtr read;
+            if (!Native.ReadProcessMemory(process, results, buffer, (UIntPtr)count, out read) || read.ToUInt64() != (ulong)count)
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+            return buffer;
+        }
+        finally
+        {
+            if (thread != IntPtr.Zero)
+                Native.CloseHandle(thread);
+            if (free)
+            {
+                Native.VirtualFreeEx(process, block, UIntPtr.Zero, 0x8000);
+                Native.VirtualFreeEx(process, results, UIntPtr.Zero, 0x8000);
+            }
+        }
+    }
+
     internal bool NavigationProbe(Position from, Position to)
     {
         if (navigationFunction == 0 || !from.Outside || !to.Outside)
@@ -870,7 +983,11 @@ sealed class TargetSender : IDisposable
         if (pendingThread != IntPtr.Zero)
         {
             if (Native.WaitForSingleObject(pendingThread, 1000) == 0)
+            {
                 Native.VirtualFreeEx(process, pendingBlock, UIntPtr.Zero, 0x8000);
+                if (pendingBlock2 != IntPtr.Zero)
+                    Native.VirtualFreeEx(process, pendingBlock2, UIntPtr.Zero, 0x8000);
+            }
             Native.CloseHandle(pendingThread);
         }
         Native.CloseHandle(process);

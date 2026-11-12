@@ -562,6 +562,8 @@ sealed partial class MemorySelectV3Form
                 ExplorerArrived(now);
                 return;
             }
+            NotifyDone(caravanWalk ? "Kervan rotası bitti" : "Yürüyüş bitti", d.Name + (caravanWalk ? " · karakter hedef tüccarın yanında." :
+                " · karakter hedefe ulaştı."));
             Stop("Hedefe ulaşıldı · " + d.Name);
             return;
         }

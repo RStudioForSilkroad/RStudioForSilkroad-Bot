@@ -422,7 +422,7 @@ sealed class V3Settings
 {
     public bool ReturnBeforeTravel, TravelMount, AutoEnterGrim, UniqueAlert, SkillList;
     public List<SkillSlot> Skills = new List<SkillSlot>();
-    public bool BackgroundWalk = true;
+    public bool BackgroundWalk = true, NotifyDone = true;
     public List<int> ExplorerDone = new List<int>();
     public bool ExplorerSkipDone = true;
     public int ExplorerModel = ExplorerSpots.DefaultModel;

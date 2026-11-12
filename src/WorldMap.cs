@@ -320,6 +320,39 @@ sealed class WorldMapView : Control
         g.DrawString(text, font, brush, x, y);
     }
 
+    // The scaled map is the costly part of a repaint (about 80 ms); it is redrawn only when the view changes, so the marks and routes on
+    // top (repainted every time the character moves) are cheap.
+    Bitmap layer;
+    double layerZoom, layerCx, layerCy;
+    Size layerSize;
+    bool layerFast;
+
+    void DrawBase(Graphics g)
+    {
+        if (Width < 2 || Height < 2)
+            return;
+        if (layer == null || layerSize != ClientSize || layerZoom != zoom || layerCx != cx || layerCy != cy || layerFast != dragging)
+        {
+            if (layer != null)
+                layer.Dispose();
+            layer = new Bitmap(Width, Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            layerSize = ClientSize;
+            layerZoom = zoom;
+            layerCx = cx;
+            layerCy = cy;
+            layerFast = dragging;
+            using (var lg = Graphics.FromImage(layer))
+            {
+                lg.Clear(BackColor);
+                lg.InterpolationMode = dragging ? InterpolationMode.Bilinear : InterpolationMode.HighQualityBilinear;
+                lg.PixelOffsetMode = PixelOffsetMode.Half;
+                float left = (float)((0 - cx) * zoom + Width / 2.0), top = (float)((0 - cy) * zoom + Height / 2.0);
+                lg.DrawImage(baseMap, new RectangleF(left, top, (float)(baseMap.Width * zoom), (float)(baseMap.Height * zoom)));
+            }
+        }
+        g.DrawImageUnscaled(layer, 0, 0);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
@@ -330,12 +363,7 @@ sealed class WorldMapView : Control
             using (var big = new Font("Segoe UI", 10.5f, FontStyle.Bold))
             {
                 if (baseMap != null)
-                {
-                    g.InterpolationMode = dragging ? InterpolationMode.Bilinear : InterpolationMode.HighQualityBilinear;
-                    g.PixelOffsetMode = PixelOffsetMode.Half;
-                    float left = (float)((0 - cx) * zoom + Width / 2.0), top = (float)((0 - cy) * zoom + Height / 2.0);
-                    g.DrawImage(baseMap, new RectangleF(left, top, (float)(baseMap.Width * zoom), (float)(baseMap.Height * zoom)));
-                }
+                    DrawBase(g);
                 else
                 {
                     Label(g, "Harita resmi bulunamadı.", big, Brushes.White, 20, 20);
@@ -643,6 +671,11 @@ sealed class WorldMapView : Control
 
     protected override void Dispose(bool disposing)
     {
+        if (disposing && layer != null)
+        {
+            layer.Dispose();
+            layer = null;
+        }
         if (disposing && baseMap != null)
         {
             baseMap.Dispose();

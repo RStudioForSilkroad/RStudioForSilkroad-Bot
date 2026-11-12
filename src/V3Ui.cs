@@ -727,6 +727,9 @@ sealed partial class MemorySelectV3Form : Form
         ConfigureCheck(backgroundWalk, "Yürüyüş işleri arka planda da çalışsın (Explorer, kervan, dungeon yolu)", true, 0);
         row.Controls.Add(backgroundWalk);
         row = Line(card);
+        ConfigureCheck(notifyDone, "İş bitince bildirim ver (ses, balon, görev çubuğu)", true, 0);
+        row.Controls.Add(notifyDone);
+        row = Line(card);
         ConfigureCheck(returnBeforeTravel, "Farklı bölgeye giderken önce Return Scroll kullan · İsteğe bağlı", false, 0);
         row.Controls.Add(returnBeforeTravel);
 
@@ -815,6 +818,7 @@ sealed partial class MemorySelectV3Form : Form
         returnBeforeTravel.Checked = settings.ReturnBeforeTravel;
         travelMount.Checked = settings.TravelMount;
         backgroundWalk.Checked = settings.BackgroundWalk;
+        notifyDone.Checked = settings.NotifyDone;
         uniqueAlertBox.Checked = settings.UniqueAlert;
         skillListBox.Checked = settings.SkillList;
         if (settings.Skills != null && settings.Skills.Count > 0)
@@ -869,6 +873,7 @@ sealed partial class MemorySelectV3Form : Form
         settings.ReturnBeforeTravel = returnBeforeTravel.Checked;
         settings.TravelMount = travelMount.Checked;
         settings.BackgroundWalk = backgroundWalk.Checked;
+        settings.NotifyDone = notifyDone.Checked;
         settings.UniqueAlert = uniqueAlertBox.Checked;
         settings.SkillList = skillListBox.Checked;
         settings.Skills = SkillSlotsFromGrid();

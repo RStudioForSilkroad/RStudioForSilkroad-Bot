@@ -220,6 +220,37 @@ sealed class ExplorerMapView : Control
         return best;
     }
 
+    // The scaled map is the costly part of a repaint (about 100 ms); it is redrawn only when the view changes, so the spots and the
+    // character mark on top can be repainted as often as the character moves.
+    Bitmap layer;
+    double layerZoom, layerCx, layerCy;
+    Size layerSize;
+
+    void DrawBase(Graphics g)
+    {
+        if (Width < 2 || Height < 2)
+            return;
+        if (layer == null || layerSize != ClientSize || layerZoom != zoom || layerCx != cx || layerCy != cy)
+        {
+            if (layer != null)
+                layer.Dispose();
+            layer = new Bitmap(Width, Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            layerSize = ClientSize;
+            layerZoom = zoom;
+            layerCx = cx;
+            layerCy = cy;
+            using (var lg = Graphics.FromImage(layer))
+            {
+                lg.Clear(Color.FromArgb(232, 236, 243));
+                lg.InterpolationMode = zoom < 1 ? InterpolationMode.HighQualityBicubic : InterpolationMode.Bilinear;
+                lg.PixelOffsetMode = PixelOffsetMode.Half;
+                lg.DrawImage(baseMap, new RectangleF((float)(Width / 2.0 - cx * zoom), (float)(Height / 2.0 - cy * zoom),
+                    (float)(baseMap.Width * zoom), (float)(baseMap.Height * zoom)));
+            }
+        }
+        g.DrawImageUnscaled(layer, 0, 0);
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
@@ -230,10 +261,7 @@ sealed class ExplorerMapView : Control
                 g.DrawString("Harita yükleniyor…", Ui.Body, brush, 12, 12);
             return;
         }
-        g.InterpolationMode = zoom < 1 ? InterpolationMode.HighQualityBicubic : InterpolationMode.Bilinear;
-        g.PixelOffsetMode = PixelOffsetMode.Half;
-        g.DrawImage(baseMap, new RectangleF((float)(Width / 2.0 - cx * zoom), (float)(Height / 2.0 - cy * zoom),
-            (float)(baseMap.Width * zoom), (float)(baseMap.Height * zoom)));
+        DrawBase(g);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         float r = Radius;
         var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center };
@@ -340,6 +368,11 @@ sealed class ExplorerMapView : Control
 
     protected override void Dispose(bool disposing)
     {
+        if (disposing && layer != null)
+        {
+            layer.Dispose();
+            layer = null;
+        }
         if (disposing && baseMap != null)
         {
             baseMap.Dispose();
@@ -725,6 +758,7 @@ sealed partial class MemorySelectV3Form
         var run = explorerRun;
         int found = settings.ExplorerDone.Count, missing = explorerMissing.Count;
         explorerRun = null;
+        NotifyDone("Explorer bitti", "Bulunan " + found + " / " + ExplorerSpots.All.Count + (missing > 0 ? " · bulunamayan " + missing : ""));
         Stop("Explorer tamamlandı · bulunan " + found + " / " + ExplorerSpots.All.Count + (missing > 0 ? " · bulunamayan " + missing : ""));
         RefreshExplorerUi();
     }

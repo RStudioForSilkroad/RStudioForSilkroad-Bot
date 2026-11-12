@@ -214,6 +214,8 @@ sealed partial class MemorySelectV3Form : Form
         BeginOperation(OperationMode.Hunt);
     }
 
+    internal const int IdlePollMs = 250, ActivePollMs = 100;
+
     void BeginOperation(OperationMode mode)
     {
         if (active)
@@ -270,6 +272,9 @@ sealed partial class MemorySelectV3Form : Form
         parsedKeys = list.ToArray();
         sender = new TargetSender(reader);
         active = true;
+        // While a job runs the window looks at the game four times a second faster: a quicker reaction, and the route search (a few steps per
+        // look) finishes sooner.
+        poll.Interval = ActivePollMs;
         operation = mode;
         wanted = lastRequest = 0;
         attempts = keyIndex = 0;
@@ -306,6 +311,7 @@ sealed partial class MemorySelectV3Form : Form
         grim.Stop();
         recovery.Stop();
         active = false;
+        poll.Interval = IdlePollMs;
         ReleaseKey();
         if (sender != null)
         {
@@ -436,6 +442,22 @@ sealed partial class MemorySelectV3Form : Form
             return false;
         if (operation == OperationMode.Travel && travelMount.Checked && !caravanWalk && !EnsureTravelMount(true, now))
             return false;
+        var activeSender = sender;
+        routeWalker.Prefetch = activeSender == null ? null : (Func<List<Position[]>, sbyte[]>)delegate(List<Position[]> pairs)
+        {
+            try
+            {
+                return activeSender.NavigationProbeMany(pairs);
+            }
+            catch (IOException)
+            {
+                return null;
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+        };
         routeWalker.GridStep = operation == OperationMode.Travel || (operation == OperationMode.Grim && grim.Rooms != null) ?
             4 : 8;
         var result = routeWalker.Tick(snapshot.Player, destination, now, ClimbSafeProbe(sender, operation == OperationMode.Travel),
@@ -1028,6 +1050,7 @@ sealed partial class MemorySelectV3Form : Form
     protected override void OnFormClosed(FormClosedEventArgs e)
     {
         completionNotice.Dispose();
+        DisposeDoneNotice();
         dualTimer.Stop();
         dualTimer.Dispose();
         ReleaseClientClaim();

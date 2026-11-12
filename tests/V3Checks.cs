@@ -79,6 +79,52 @@ class V3Checks
         A(!none.HasAttack && none.NextAttack(0) == 0, "No attack lines, no attack key");
     }
 
+    static void PlannerChecks()
+    {
+        // The batched navigation call: code for N queries, answers written to a separate data page.
+        var args = new uint[] { 1, 2, 3, 4, 5, 6, 7, 8 };
+        var batch = TargetSender.BuildProbeBatch(0x20000000, 0x10001000, new[] { args, args, args });
+        int calls = 0;
+        for (int i = 0; i + 1 < batch.Length; i++)
+            if (batch[i] == 0xff && batch[i + 1] == 0xd0)
+                calls++;
+        A(batch[0] == 0x55 && batch[1] == 0x8b && batch[2] == 0xec && calls == 3 && batch[batch.Length - 3] == 0xc2 && batch[batch.Length - 2] == 4 && batch[batch.Length - 1] == 0 &&
+            batch.Length < TargetSender.BatchCodeLimit, "Batched navigation call has one query per call instruction and a clean exit");
+        bool refused = false;
+        try { TargetSender.BuildProbeBatch(0x20000000, 0x10001000, new uint[17][]); }
+        catch (ArgumentException) { refused = true; }
+        A(refused, "A batch of more than 16 queries is refused");
+        refused = false;
+        try { TargetSender.BuildProbeBatch(0x20000000, 0x10001000, new[] { new uint[7] }); }
+        catch (ArgumentException) { refused = true; }
+        A(refused, "A query without exactly 8 arguments is refused");
+        // The same search with and without batching finds the same route, and batching asks the game far less often.
+        Func<Position, Position, bool> open = (a, b) => !(Math.Min(a.X, b.X) <= 2 && Math.Max(a.X, b.X) >= 0 && Math.Min(a.Y, b.Y) <= 20 && Math.Max(a.Y, b.Y) >= -40);
+        var start = V2Rules.Center(-30, 0, 0f);
+        var goal = V2Rules.Center(30, 0, 0f);
+        int singleCalls = 0, batchCalls = 0;
+        var plain = new ObstaclePath { Step = 4 };
+        plain.Begin(start, goal, null, 3);
+        for (int i = 0; i < 400 && plain.Route == null && !plain.Failed; i++)
+            plain.Advance((a, b) => { singleCalls++; return open(a, b); }, 64);
+        var batched = new ObstaclePath { Step = 4 };
+        batched.Prefetch = pairs => { batchCalls++; return pairs.Select(pair => (sbyte)(open(pair[0], pair[1]) ? 1 : 0)).ToArray(); };
+        batched.Begin(start, goal, null, 3);
+        for (int i = 0; i < 400 && batched.Route == null && !batched.Failed; i++)
+            batched.Advance((a, b) => open(a, b), 64);
+        A(plain.Route != null && batched.Route != null && plain.Route.Count == batched.Route.Count &&
+            plain.Route.Zip(batched.Route, (p, q) => p.Distance(q) < 0.01).All(same => same), "Batched search finds exactly the same route");
+        A(batchCalls > 0 && batchCalls * 3 < singleCalls, "Batched search calls the game far less often (" + batchCalls + " instead of " + singleCalls + ")");
+        // Unknown answers (-1) fall back to the single query.
+        var unsure = new ObstaclePath { Step = 4 };
+        unsure.Prefetch = pairs => pairs.Select(pair => (sbyte)-1).ToArray();
+        unsure.Begin(start, goal, null, 3);
+        for (int i = 0; i < 400 && unsure.Route == null && !unsure.Failed; i++)
+            unsure.Advance((a, b) => open(a, b), 64);
+        A(unsure.Route != null && unsure.Route.Count == plain.Route.Count, "Unknown batch answers fall back to the single query");
+        A(MemorySelectV3Form.IdlePollMs == 250 && MemorySelectV3Form.ActivePollMs == 100, "The window looks at the game every 250 ms idle and 100 ms while a job runs");
+    }
+
     static void StartupChecks()
     {
         var names = System.Reflection.Assembly.GetExecutingAssembly().GetManifestResourceNames();
@@ -252,6 +298,7 @@ class V3Checks
         A(scriptText.Contains("# feribot: GATE_NPC_KT_FERRY2") && scriptText.Contains("1 feribot geçişi"), "Script marks the ferry crossing");
         SkillChecks();
         StartupChecks();
+        PlannerChecks();
         ExplorerChecks();
         // Unique alert: once per monster, again after it left and came back; ordinary monsters are ignored.
         var alert = new UniqueAlert();
@@ -632,6 +679,13 @@ class V3Checks
         A(explorerArea.Items.Count == 8, "Explorer page offers the whole map and seven areas");
         var backgroundWalk = (CheckBox)typeof(MemorySelectV3Form).GetField("backgroundWalk", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
         A(backgroundWalk.Checked && new V3Settings().BackgroundWalk, "Walking jobs may run in the background by default");
+        var notifyBox = (CheckBox)typeof(MemorySelectV3Form).GetField("notifyDone", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form);
+        A(notifyBox.Checked && new V3Settings().NotifyDone, "A finished job is announced by default");
+        notifyBox.Checked = false;
+        typeof(MemorySelectV3Form).GetMethod("NotifyDone", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, new object[] { "Deneme", "Bildirim kapalıyken sessiz kalır." });
+        A(typeof(MemorySelectV3Form).GetField("doneIcon", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(form) == null,
+            "With notifications off no tray icon is created");
+        notifyBox.Checked = true;
         A(!(bool)typeof(MemorySelectV3Form).GetMethod("CommandsAllowed", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(form, null),
             "Without a connected game no command is allowed");
         var dg =(DataGridView)typeof(MemorySelectV3Form).GetField("dungeonGrid", flags).GetValue(form);

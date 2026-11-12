@@ -416,7 +416,8 @@ sealed class RoadMesh
     internal static double WallPenalty = 40, ObjectPenalty = 1.5;
     // The last stretch to an entrance that the map cannot reach is walked live, which is less reliable: every unit of it counts several times.
     const double LiveGapWeight = 6, ShortcutGap = 240, ShortcutMargin = 600;
-    const double RoadDiscount = 0.7, RoadShare = 0.12 * 255, WetPenalty = 80, WetShare = 0.15 * 255;
+    internal static double RoadDiscount = 0.7;
+    const double RoadShare = 0.12 * 255, WetPenalty = 80, WetShare = 0.15 * 255;
 
     internal List<TransitStep> Plan(Position start, Position goal, HashSet<int> excluded = null)
     {
