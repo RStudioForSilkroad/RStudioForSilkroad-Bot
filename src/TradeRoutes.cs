@@ -20,11 +20,14 @@ sealed class TradeNpc
 // Caravan routes between the trade towns. Trade goods cannot be teleported or shipped, so these routes are planned over roads only.
 static class TradeRoutes
 {
-    internal static readonly string[] Towns = { "Hotan", "Jangan", "Donwhang" };
+    internal static readonly string[] Towns = { "Hotan", "Jangan", "Donwhang", "Samarkand", "Constantinople", "Nanzhang" };
     internal static readonly string[][] Routes =
     {
         new[] { "Hotan", "Jangan" }, new[] { "Jangan", "Hotan" }, new[] { "Hotan", "Donwhang" }, new[] { "Donwhang", "Hotan" },
-        new[] { "Jangan", "Donwhang" }, new[] { "Donwhang", "Jangan" }
+        new[] { "Jangan", "Donwhang" }, new[] { "Donwhang", "Jangan" },
+        new[] { "Samarkand", "Constantinople" }, new[] { "Constantinople", "Samarkand" },
+        // Nanzhang: on foot along the road marked on the world map (see JanganNanzhangRoad), not by the gate teleport.
+        new[] { "Jangan", "Nanzhang" }, new[] { "Nanzhang", "Jangan" }
     };
 
     internal static string StorePath
@@ -37,7 +40,7 @@ static class TradeRoutes
         get { return Path.Combine(AppPaths.DataRoot, "scripts"); }
     }
 
-    // The three trade towns by their short names; null for anywhere else.
+    // The trade towns by their short names; null for anywhere else.
     internal static string TownKey(Position p)
     {
         string name = V3Data.Town(p);
@@ -100,7 +103,12 @@ static class TradeRoutes
 
     static Position GatePoint(double y)
     {
-        var p = V2Rules.Center(GateX, y, 0);
+        return GatePoint(GateX, y);
+    }
+
+    static Position GatePoint(double x, double y)
+    {
+        var p = V2Rules.Center(x, y, 0);
         float height;
         if (ExpeditionRules.TryGround(p, out height))
             p.Height = height;
@@ -114,7 +122,7 @@ static class TradeRoutes
         bool from = InJangan(start), to = InJangan(goal);
         if (from == to)
             return null;
-        var points = GateY.Select(GatePoint).ToArray();
+        var points = GateY.Select(y => GatePoint(y)).ToArray();
         if (!from)
             Array.Reverse(points);
         return points;
@@ -125,7 +133,50 @@ static class TradeRoutes
         return new TransitStep { CellId = -1, To = new TransitGate { Code = "Güney kapı", X = p.X, Y = p.Y, Height = p.Height } };
     }
 
+    // The road from Jangan to Nanzhang as marked on the game's world map, in the order walked from Jangan: it leaves the city's east side, runs
+    // down over Jangan Pass and reaches Nanzhang's east gate (Gate Guard Ma Teng stands at 6100, -1711). The map points were converted with the
+    // scale between the two city icons; each leg is planned over the road network separately because the network does not join the two ends.
+    internal static readonly double[][] JanganNanzhangRoad =
+    {
+        new[] { 7186.0, 1170 }, new[] { 7228.0, 760 }, new[] { 7222.0, 398 }, new[] { 7035.0, 156 }, new[] { 6842.0, -116 }, new[] { 6812.0, -328 },
+        new[] { 6854.0, -569 }, new[] { 6945.0, -750 }, new[] { 6927.0, -931 }, new[] { 6930.0, -1040 }, new[] { 6866.0, -1125 }, new[] { 6842.0, -1275 },
+        new[] { 6824.0, -1426 }, new[] { 6763.0, -1547 }, new[] { 6733.0, -1668 }, new[] { 6672.0, -1698 }, new[] { 6582.0, -1710 }, new[] { 6159.0, -1710 }
+    };
+
+    static bool InNanzhang(Position p)
+    {
+        return p != null && V3Data.Town(p) == "Nanzhang";
+    }
+
+    // The way points of the Jangan - Nanzhang road in walking order for this start and goal, or null for any other route.
+    internal static List<Position> RoadWaypoints(Position start, Position goal)
+    {
+        bool forward = InJangan(start) && InNanzhang(goal), back = InNanzhang(start) && InJangan(goal);
+        if (!forward && !back)
+            return null;
+        var points = JanganNanzhangRoad.Select(r => GatePoint(r[0], r[1])).ToList();
+        if (back)
+            points.Reverse();
+        return points;
+    }
+
     internal static List<TransitStep> PlanVia(Position start, Position goal, Func<Position, Position, List<TransitStep>> planner)
+    {
+        var road = RoadWaypoints(start, goal);
+        if (road == null)
+            return PlanLeg(start, goal, planner);
+        var plan = new List<TransitStep>();
+        var at = start;
+        foreach (var p in road)
+        {
+            plan.AddRange(PlanLeg(at, p, planner));
+            at = p;
+        }
+        plan.AddRange(PlanLeg(at, goal, planner));
+        return plan;
+    }
+
+    static List<TransitStep> PlanLeg(Position start, Position goal, Func<Position, Position, List<TransitStep>> planner)
     {
         var gate = GatePoints(start, goal);
         if (gate == null)
@@ -184,7 +235,7 @@ sealed partial class MemorySelectV3Form
 {
     Dictionary<string, TradeNpc> tradeNpcs = new Dictionary<string, TradeNpc>();
     readonly Dictionary<string, Label> tradeNpcLabels = new Dictionary<string, Label>();
-    readonly Label caravanStatus = new Label();
+    readonly Label caravanStatus = new Label(), caravanAnimal = new Label();
 
     void BuildCaravan()
     {
@@ -194,7 +245,8 @@ sealed partial class MemorySelectV3Form
         var intro = new Label { AutoSize = true, MaximumSize = new Size(900, 0), Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
             "Ticaret malı ışınlanamaz: rota yürüyerek hesaplanır, teleport, Return Scroll ve binek kullanılmaz. Nehir geçişlerinde (örneğin Hotan - Donwhang) " +
             "en uygun feribot geçidi seçilir ve karakter feribot NPC’sine kendisi tıklayıp karşıya geçer. " +
-            "Önce her şehirde tüccar NPC’ye oyunda tıklayıp “Seçili NPC’yi kaydet” düğmesine bas; konum bir kez öğrenilir." };
+            "Önce her şehirde tüccar NPC’ye oyunda tıklayıp “Seçili NPC’yi kaydet” düğmesine bas; konum bir kez öğrenilir. " +
+            "Jangan - Nanzhang rotası, haritada işaretlenen karayolunu izler (Jangan Pass üzerinden Nanzhang’ın doğu kapısına); ışınlanma kullanılmaz." };
         content.Controls.Add(intro);
 
         content.Controls.Add(SectionTitle("Tüccar NPC’leri"));
@@ -214,15 +266,25 @@ sealed partial class MemorySelectV3Form
         actions.Controls.Add(Btn("Kayıtları temizle", ClearTradeNpcs, 160, true, ButtonKind.Ghost));
         content.Controls.Add(actions);
 
+        content.Controls.Add(SectionTitle("Kervan hayvanı"));
+        caravanAnimal.AutoSize = true;
+        caravanAnimal.MaximumSize = new Size(900, 0);
+        caravanAnimal.Margin = new Padding(0, 0, 0, 4);
+        content.Controls.Add(caravanAnimal);
+        var animalRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0, 0, 0, 6) };
+        animalRow.Controls.Add(Btn("Bindiğim hayvanı kervan hayvanı yap", AddCaravanAnimal, 280, false, ButtonKind.Secondary));
+        animalRow.Controls.Add(Btn("Kervan hayvanı listesini sıfırla", ResetCaravanAnimals, 250, false, ButtonKind.Ghost));
+        content.Controls.Add(animalRow);
+
         content.Controls.Add(SectionTitle("Rotalar"));
         // Three routes per row: the route button and its script button side by side.
-        var grid = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, MaximumSize = new Size(920, 0),
+        var grid = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, MaximumSize = new Size(1120, 0),
             Margin = new Padding(0) };
         foreach (string[] route in TradeRoutes.Routes)
         {
             string from = route[0], to = route[1];
             var cell = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0, 0, 14, 0) };
-            cell.Controls.Add(Btn(from + " - " + to + " Sc", delegate { StartCaravan(from, to); }, 190, true, ButtonKind.Success));
+            cell.Controls.Add(Btn(from + " - " + to + " Sc", delegate { StartCaravan(from, to); }, 262, true, ButtonKind.Success));
             cell.Controls.Add(Btn("Script", delegate { ExportCaravanScript(from, to, true); }, 80, false));
             grid.Controls.Add(cell);
         }
@@ -237,6 +299,7 @@ sealed partial class MemorySelectV3Form
 
         tradeNpcs = TradeRoutes.Load(TradeRoutes.StorePath);
         RefreshCaravanUi();
+        UpdateCaravanAnimalText();
     }
 
     static Label SectionTitle(string text)
@@ -285,7 +348,7 @@ sealed partial class MemorySelectV3Form
             throw new InvalidOperationException("Seçili hedef bir NPC olarak okunamadı.");
         string town = TradeRoutes.TownKey(npc.Position);
         if (town == null)
-            throw new InvalidOperationException("Seçili NPC Hotan, Jangan veya Donwhang şehrinde değil.");
+            throw new InvalidOperationException("Seçili NPC tüccar şehirlerinden birinde değil (Hotan, Jangan, Donwhang, Samarkand, Constantinople, Nanzhang).");
         tradeNpcs[town] = new TradeNpc { Town = town, X = npc.Position.X, Y = npc.Position.Y, Model = npc.Model };
         TradeRoutes.Save(TradeRoutes.StorePath, tradeNpcs);
         Log("Tüccar NPC kaydedildi · " + town + " · model " + npc.Model);
@@ -293,9 +356,50 @@ sealed partial class MemorySelectV3Form
         RefreshCaravanUi();
     }
 
+    // The animal being ridden becomes a caravan animal (saved by its model): the bot then leaves it alone like a trade horse.
+    void AddCaravanAnimal()
+    {
+        RequireReader();
+        snapshot = reader.Capture();
+        if (!snapshot.MountKnown || snapshot.MountUid == 0)
+            throw new InvalidOperationException("Önce kervan hayvanına bin; sonra tekrar dene.");
+        if (snapshot.MountModel == 0)
+            throw new InvalidOperationException("Binilen hayvanın modeli okunamadı.");
+        if (settings.CaravanAnimals == null)
+            settings.CaravanAnimals = new List<int>();
+        if (!settings.CaravanAnimals.Contains((int)snapshot.MountModel))
+            settings.CaravanAnimals.Add((int)snapshot.MountModel);
+        SaveSettingsQuietly();
+        Log("Kervan hayvanı eklendi · model " + snapshot.MountModel);
+        UpdateCaravanAnimalText();
+    }
+
+    void ResetCaravanAnimals()
+    {
+        settings.CaravanAnimals = new List<int> { 23909 };
+        SaveSettingsQuietly();
+        UpdateCaravanAnimalText();
+    }
+
+    string CaravanAnimalList()
+    {
+        var models = settings == null || settings.CaravanAnimals == null ? new List<int>() : settings.CaravanAnimals;
+        return models.Count == 0 ? "yok" : string.Join(", ", models.Select(m => m == 23909 ? "Buffalo (23909)" : m.ToString()));
+    }
+
+    // Shown on the page: what is ridden now and which animals count as caravan animals.
+    void UpdateCaravanAnimalText()
+    {
+        string now = snapshot == null || !snapshot.MountKnown ? "oyuna bağlı değil" : snapshot.MountUid == 0 ? "yaya" :
+            "binili hayvan modeli " + snapshot.MountModel + (RidingCaravanAnimal() ? " · kervan hayvanı: mount komutu gönderilmez, binili yürür" : " · normal binek");
+        string text = "Şu an: " + now + "\r\nKayıtlı kervan hayvanları: " + CaravanAnimalList();
+        if (caravanAnimal.Text != text)
+            caravanAnimal.Text = text;
+    }
+
     void ClearTradeNpcs()
     {
-        if (!ConfirmDialog.Ask(this, "Kayıtlar silinsin mi?", "Kaydedilen üç tüccar konumu silinir; yeniden seçmen gerekir.", "Sil", "Vazgeç", true))
+        if (!ConfirmDialog.Ask(this, "Kayıtlar silinsin mi?", "Kaydedilen tüm tüccar konumları silinir; yeniden seçmen gerekir.", "Sil", "Vazgeç", true))
             return;
         tradeNpcs.Clear();
         TradeRoutes.Save(TradeRoutes.StorePath, tradeNpcs);

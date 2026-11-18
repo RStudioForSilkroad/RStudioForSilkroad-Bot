@@ -543,21 +543,27 @@ sealed partial class MemorySelectV3Form : Form
         // The panel is resized many times while tabs switch and scrollbars appear; rebuilding all cards each time is what made the page slow.
         if (arranged && two == arrangedTwo && usable == arrangedUsable)
             return;
+        bool modeChanged = !arranged || two != arrangedTwo;
         arranged = true;
         arrangedTwo = two;
         arrangedUsable = usable;
         ArrangeRuns++;
-        huntRoot.SuspendLayout();
-        huntColumns.SuspendLayout();
+        // The whole tree is held back, not just the two roots: every card and row below lays out again on each size it is given, and with
+        // only the roots suspended that was hundreds of nested passes (about 0.7 s) per window size.
+        Ui.Freeze(huntRoot);
         var all = leftCards.Concat(rightCards).ToList();
-        foreach (var card in all)
-            card.Parent = null;
-        var primary = two ? leftCards : all;
-        foreach (var card in primary)
-            leftColumn.Controls.Add(card);
-        if (two)
-            foreach (var card in rightCards)
-                rightColumn.Controls.Add(card);
+        // The cards only change columns when the window crosses between one and two columns; a plain width change keeps them where they are.
+        if (modeChanged)
+        {
+            foreach (var card in all)
+                card.Parent = null;
+            var primary = two ? leftCards : all;
+            foreach (var card in primary)
+                leftColumn.Controls.Add(card);
+            if (two)
+                foreach (var card in rightCards)
+                    rightColumn.Controls.Add(card);
+        }
         huntColumns.ColumnStyles[0].SizeType = SizeType.Absolute;
         huntColumns.ColumnStyles[0].Width = cardWidth;
         huntColumns.ColumnStyles[1].SizeType = SizeType.Absolute;
@@ -579,8 +585,8 @@ sealed partial class MemorySelectV3Form : Form
             var host = control.Parent == null || control.Parent.Parent == null ? null : control.Parent.Parent.Parent as CardBox;
             control.Width = host == liveCard ? liveInner : inner;
         }
-        huntColumns.ResumeLayout(true);
-        huntRoot.ResumeLayout(true);
+        Ui.Thaw(huntRoot);
+        huntRoot.PerformLayout();
     }
 
     void BuildHunt()

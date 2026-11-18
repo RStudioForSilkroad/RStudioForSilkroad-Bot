@@ -16,7 +16,15 @@ static class ReleaseNotes
     }
 
     // Newest first.
-    internal static readonly Entry[] All = { new Entry { Version = "3.12.0.0", Title = "Skill listesi okunuyor, zorunlu güncelleme ve yeni Kervan sayfası",
+    internal static readonly Entry[] All = { new Entry { Version = "3.12.1.0", Title = "Oyunun 18 Kasım güncellemesine uyum",
+        Items = new[] { "Oyun güncellemesiyle GuardyNE.dll yenilendi (rev 34); gönderim, yürüme, navigasyon, mount ve Grim okuma adresleri yeni DLL'e göre bulundu. Eski DLL sürümü de tanınmaya devam eder.",
+        "Canlı oyunda doğrulandı: karakter okuma, yürüme, yol sorgusu, skill listesi okuma, mount durumu. Bilinmeyen bir DLL sürümü gelirse bot bunu açıkça bildirir.",
+        "Not: Grim Crypt içi ve mount'a binme / inme çağrısı yeni DLL'de henüz canlı denenmedi (imzalar ve veri düzeni doğrulandı).",
+        "Kervan rotası: Samarkand - Constantinople (iki yön) ve Jangan - Nanzhang (iki yön) eklendi. Jangan - Nanzhang, haritada işaretlenen karayolunu izler (Jangan Pass üzerinden Nanzhang'ın doğu kapısına), ışınlanma kullanılmaz. Yeni şehirlerin tüccarları için oyunda NPC'ye tıklayıp “Seçili NPC'yi kaydet”e bas. Yol planı hesaplandı, gerçek yürüyüşte henüz denenmedi.",
+        "Kervan hayvanı (Buffalo, model 23909) normal mount'tan ayrıldı: binili iken bot mount / inme komutu göndermez, kervan rotasında ona binili yürür. Kervan sayfasından binili hayvan kervan hayvanı olarak eklenebilir. Hayvanı çağırıp bindirme yapılmadı.",
+        "Av / Ayarlar sayfası pencere boyutu değişirken artık çok daha hızlı yerleşiyor (adım başına yaklaşık 3 sn yerine 0,15 sn).",
+        "Daha yumuşak tasarım: açık kenarlıklar, slate metin rengi, daha yuvarlak köşeler ve kartlarda çok hafif gölge." } },
+        new Entry { Version = "3.12.0.0", Title = "Skill listesi okunuyor, zorunlu güncelleme ve yeni Kervan sayfası",
         Items = new[] { "“Skilleri oku” artık karakterin öğrendiği skill’leri gerçekten buluyor (canlı oyunda doğrulandı: 66 skill, adı ve seviyesiyle). İpucu gerekmez; yaklaşık 6 saniye sürer.",
         "Skill’i kimliğiyle kullanma canlı oyunda doğrulandı: tuşsuz satır skill’i istemciye kimlikle bildirir, buff gelir, mana düşer; oyun arkada ya da gizliyken de çalışır.",
         "Arka plan tuşu: ölçüldü, bu istemci klavye mesajını yalnız oyun öndeyken işliyor. Arka planda çalışmak için skill’leri listeden seçip tuşsuz ekle. “Arka plan tuşunu sına” tuşlu satırı kendisi seçer, tuşsuz satırda “Kimlikle sına”ya yönlendirir.",

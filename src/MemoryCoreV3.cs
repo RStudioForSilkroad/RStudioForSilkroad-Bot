@@ -136,6 +136,8 @@ sealed class Snapshot
     public string CharacterName;
     public bool MountKnown;
     public uint MountUid;
+    // The model of the animal being ridden (read from the world object list), 0 when on foot or not found.
+    public uint MountModel;
     public List<WorldNpc> Npcs = new List<WorldNpc>();
     public Position Player;
     public uint Selected;
@@ -155,15 +157,41 @@ sealed class Snapshot
     public List<Monster> Monsters = new List<Monster>();
 }
 
+// One known build of GuardyNE.dll: the file hash, the PE time stamp and image size read back from the loaded copy, and the offsets (from the
+// module base) of what the bot uses. A new game update that replaces the DLL needs one more entry here; the game's own sro_client.exe is
+// checked separately.
+sealed class GuardBuild
+{
+    internal string Label, Hash;
+    internal uint Stamp, ImageSize, Sender, Move, Reverse, Navigation, MountUid, GrimText, MountDown, MountUp;
+
+    internal static readonly GuardBuild[] Known =
+    {
+        // 04.11 (update rev 33 and earlier)
+        new GuardBuild { Label = "04.11", Hash = "3206CF49259ECA33CA6DF4783E1D7192ED722CEEFEAD1925F9C7E46B7F8D1D01", Stamp = 0x6aea06e7, ImageSize = 0x185f000,
+            Sender = 0xE183, Move = 0x743CD0, Reverse = 0x741360, Navigation = 0x672e40, MountUid = 0xc216d8, GrimText = 0xad2298,
+            MountDown = 0x450110, MountUp = 0x450030 },
+        // update rev 34 (2026-11-18): offsets found by matching the old functions' code in the new DLL
+        new GuardBuild { Label = "rev 34", Hash = "62F212E6B775501CECB81C8AFE83292DA20BAA62645D662E65CD1E251AED660D", Stamp = 0x6afa04fb, ImageSize = 0x1a12000,
+            Sender = 0xF92F, Move = 0x844A10, Reverse = 0x842000, Navigation = 0x76D8D0, MountUid = 0xd7c720, GrimText = 0xc28070,
+            MountDown = 0x495B10, MountUp = 0x495A30 }
+    };
+
+    internal static GuardBuild ByHash(string hash)
+    {
+        return Known.FirstOrDefault(b => string.Equals(b.Hash, hash, StringComparison.OrdinalIgnoreCase));
+    }
+}
+
 sealed class GameReader : IDisposable
 {
     const string ClientHash = "51081AC1F776A38FE0AF58E2A961BFA9E8166506AE26DC8DCFD8008736725C05";
-    internal const string GuardHash = "3206CF49259ECA33CA6DF4783E1D7192ED722CEEFEAD1925F9C7E46B7F8D1D01";
     readonly IntPtr handle;
     readonly uint baseAddress;
     readonly long started;
     internal readonly Process Process;
     internal uint SenderAddress, GuardBase, MoveAddress, ReverseAddress, NavigationAddress;
+    internal GuardBuild Guard;
     internal string Compatibility = "DLL bağlantısı yok";
     public readonly Dictionary<uint, string> Names;
 
@@ -193,21 +221,24 @@ sealed class GameReader : IDisposable
             {
                 if (!string.Equals(module.ModuleName, "GuardyNE.dll", StringComparison.OrdinalIgnoreCase))
                     continue;
-                if (Hash(module.FileName) != GuardHash)
+                var build = GuardBuild.ByHash(Hash(module.FileName));
+                if (build == null)
                 {
-                    Compatibility = "Desteklenmeyen GuardyNE.dll sürümü.";
+                    Compatibility = "Desteklenmeyen GuardyNE.dll sürümü (oyun güncellenmiş olabilir; bot yeni sürüme göre güncellenmeli).";
                     continue;
                 }
-                GuardBase = Native.Addr(module.BaseAddress);
-                uint pe = U32(GuardBase + 0x3c);
-                if (pe > 0x10000 || U32(GuardBase + pe) != 0x4550 || U32(GuardBase + pe + 8) != 0x6aea06e7 || U32(GuardBase +
-                    pe + 80) != 0x185f000)
+                uint baseOfDll = Native.Addr(module.BaseAddress);
+                uint pe = U32(baseOfDll + 0x3c);
+                if (pe > 0x10000 || U32(baseOfDll + pe) != 0x4550 || U32(baseOfDll + pe + 8) != build.Stamp || U32(baseOfDll +
+                    pe + 80) != build.ImageSize)
                     throw new IOException("Yüklenen DLL disk sürümüyle eşleşmiyor; oyunu yeniden başlat.");
-                SenderAddress = GuardBase + 0xE183;
-                MoveAddress = GuardBase + 0x743CD0;
-                ReverseAddress = GuardBase + 0x741360;
-                NavigationAddress = GuardBase + 0x672e40;
-                Compatibility = "04.11 DLL: disk ve yüklü sürüm doğrulandı";
+                Guard = build;
+                GuardBase = baseOfDll;
+                SenderAddress = GuardBase + build.Sender;
+                MoveAddress = GuardBase + build.Move;
+                ReverseAddress = GuardBase + build.Reverse;
+                NavigationAddress = GuardBase + build.Navigation;
+                Compatibility = build.Label + " DLL: disk ve yüklü sürüm doğrulandı";
             }
         }
         catch (Exception e)
@@ -216,6 +247,8 @@ sealed class GameReader : IDisposable
             MoveAddress = 0;
             ReverseAddress = 0;
             NavigationAddress = 0;
+            Guard = null;
+            GuardBase = 0;
             Compatibility = e.Message;
         }
     }
@@ -312,9 +345,9 @@ sealed class GameReader : IDisposable
         ReadGrim(snap);
         try
         {
-            if (GuardBase != 0)
+            if (GuardBase != 0 && Guard != null)
             {
-                snap.MountUid = U32(GuardBase + 0xc216d8);
+                snap.MountUid = U32(GuardBase + Guard.MountUid);
                 snap.MountKnown = true;
             }
         }
@@ -357,6 +390,8 @@ sealed class GameReader : IDisposable
                 byte[] r = Read(reference, 8);
                 ushort type = BitConverter.ToUInt16(r, 0);
                 uint model = BitConverter.ToUInt32(r, 4);
+                if (snap.MountUid != 0 && uid == snap.MountUid)
+                    snap.MountModel = model;
                 // Every NPC is listed (traders, Explorer, gates): TypeID1 1, TypeID2 2, TypeID3 2 in the client's object type.
                 if (IsNpcType(type) || model == 36031 || model == 36032 || ExpeditionRules.Network.Gates.Any(g => g.Model == (int)model))
                 {
@@ -427,11 +462,11 @@ sealed class GameReader : IDisposable
 
     void ReadGrim(Snapshot s)
     {
-        if (GuardBase == 0)
+        if (GuardBase == 0 || Guard == null)
             return;
         try
         {
-            uint a = GuardBase + 0xad2298;
+            uint a = GuardBase + Guard.GrimText;
             uint before = U32(a);
             string title = ReadSmallString(a + 8), text = ReadSmallString(a + 32);
             uint after = U32(a);
@@ -806,9 +841,9 @@ sealed class TargetSender : IDisposable
 
     internal bool ChangeMount(GameReader reader, bool mounted, uint uid)
     {
-        if (reader.GuardBase == 0 || !reader.IsForeground())
+        if (reader.GuardBase == 0 || reader.Guard == null || !reader.IsForeground())
             return false;
-        uint fn = reader.GuardBase + (mounted ? 0x450110u : 0x450030u);
+        uint fn = reader.GuardBase + (mounted ? reader.Guard.MountDown : reader.Guard.MountUp);
         byte[] signature = reader.Read(fn, 3);
         if (!signature.SequenceEqual(mounted ? new byte[] { 0x55, 0x8b, 0xec } : new byte[] { 0x83, 0xec, 8 }))
             throw new IOException("Mount işlevinin sürümü doğrulanamadı.");

@@ -12,28 +12,29 @@ using System.Windows.Forms;
 static class Ui
 {
     // Surfaces
-    internal static readonly Color Canvas = Color.FromArgb(243, 245, 249);
+    // Soft palette: a barely tinted canvas, hairline borders that stay out of the way, slate instead of near-black text.
+    internal static readonly Color Canvas = Color.FromArgb(246, 248, 251);
     internal static readonly Color Surface = Color.White;
-    internal static readonly Color SurfaceAlt = Color.FromArgb(248, 250, 252);
-    internal static readonly Color Border = Color.FromArgb(217, 223, 232);
-    internal static readonly Color BorderStrong = Color.FromArgb(172, 182, 198);
-    internal static readonly Color Divider = Color.FromArgb(230, 234, 241);
+    internal static readonly Color SurfaceAlt = Color.FromArgb(250, 251, 253);
+    internal static readonly Color Border = Color.FromArgb(229, 233, 241);
+    internal static readonly Color BorderStrong = Color.FromArgb(190, 199, 213);
+    internal static readonly Color Divider = Color.FromArgb(238, 241, 246);
 
     // Text
-    internal static readonly Color Text = Color.FromArgb(15, 23, 42);
-    internal static readonly Color TextSecondary = Color.FromArgb(71, 85, 105);
-    internal static readonly Color TextMuted = Color.FromArgb(89, 101, 121);
+    internal static readonly Color Text = Color.FromArgb(38, 49, 69);
+    internal static readonly Color TextSecondary = Color.FromArgb(82, 96, 117);
+    internal static readonly Color TextMuted = Color.FromArgb(100, 114, 135);
     internal static readonly Color TextDisabled = Color.FromArgb(148, 160, 178);
 
     // Semantic colours (white text on Success/Danger fills is at least 4.5:1)
     internal static readonly Color Success = Color.FromArgb(21, 128, 61);
     internal static readonly Color SuccessHover = Color.FromArgb(22, 101, 52);
-    internal static readonly Color SuccessTint = Color.FromArgb(220, 252, 231);
+    internal static readonly Color SuccessTint = Color.FromArgb(234, 248, 240);
     internal static readonly Color Danger = Color.FromArgb(185, 28, 28);
     internal static readonly Color DangerHover = Color.FromArgb(153, 27, 27);
-    internal static readonly Color DangerTint = Color.FromArgb(254, 226, 226);
+    internal static readonly Color DangerTint = Color.FromArgb(253, 235, 235);
     internal static readonly Color Warning = Color.FromArgb(180, 83, 9);
-    internal static readonly Color WarningTint = Color.FromArgb(254, 243, 199);
+    internal static readonly Color WarningTint = Color.FromArgb(254, 246, 224);
 
     // Accent colours the user can pick; all of them carry white text at 4.5:1 or better.
     internal static readonly string[] AccentNames = { "Mavi", "Zümrüt", "Mor", "Turuncu", "Gül", "Turkuaz", "Grafit" };
@@ -44,7 +45,7 @@ static class Ui
     internal static Color AccentHover, AccentPressed, AccentTint, AccentTintStrong;
 
     // Spacing (4 px grid)
-    internal const int Gap = 8, Pad = 16, Radius = 8, ControlHeight = 32;
+    internal const int Gap = 8, Pad = 16, Radius = 10, ControlHeight = 32;
 
     // Typography: Segoe UI for text, Consolas for the log and numbers, Segoe MDL2 Assets for icons.
     internal static readonly Font Body = new Font("Segoe UI", 10f);
@@ -67,8 +68,8 @@ static class Ui
         Accent = accents[Math.Max(0, Math.Min(accents.Length - 1, index))];
         AccentHover = Mix(Accent, Color.Black, 0.14f);
         AccentPressed = Mix(Accent, Color.Black, 0.28f);
-        AccentTint = Mix(Color.White, Accent, 0.10f);
-        AccentTintStrong = Mix(Color.White, Accent, 0.20f);
+        AccentTint = Mix(Color.White, Accent, 0.08f);
+        AccentTintStrong = Mix(Color.White, Accent, 0.16f);
     }
 
     internal static Color Mix(Color a, Color b, float t)

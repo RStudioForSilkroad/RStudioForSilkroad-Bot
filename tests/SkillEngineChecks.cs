@@ -328,6 +328,47 @@ partial class V3Checks
         }
         A(new V3Settings().ExplorerTalk && new V3Settings().ExplorerTalkOption == 1, "Explorer talks to the NPC by default, option 1");
 
+        // ---- known GuardyNE.dll builds ----
+        var oldGuard = GuardBuild.ByHash("3206cf49259eca33ca6df4783e1d7192ed722ceefead1925f9c7e46b7f8d1d01");
+        var newGuard = GuardBuild.ByHash("62F212E6B775501CECB81C8AFE83292DA20BAA62645D662E65CD1E251AED660D");
+        A(oldGuard != null && oldGuard.Sender == 0xE183 && oldGuard.Move == 0x743CD0 && oldGuard.Stamp == 0x6aea06e7,
+            "The DLL build before the rev 34 update is still known, hash compared without regard to case");
+        A(newGuard != null && newGuard.Sender == 0xF92F && newGuard.Move == 0x844A10 && newGuard.Reverse == 0x842000 && newGuard.Navigation == 0x76D8D0 &&
+            newGuard.MountUid == 0xd7c720 && newGuard.GrimText == 0xc28070 && newGuard.MountDown == 0x495B10 && newGuard.MountUp == 0x495A30 && newGuard.Stamp == 0x6afa04fb,
+            "The rev 34 DLL build has its own offsets");
+        A(GuardBuild.ByHash("00") == null && GuardBuild.Known.Select(b => b.Hash).Distinct().Count() == GuardBuild.Known.Length,
+            "An unknown DLL is refused and every build has its own hash");
+
+        // ---- caravan animals are not the stable's mount ----
+        A(new V3Settings().CaravanAnimals.SequenceEqual(new[] { 23909 }), "The Buffalo is a caravan animal by default");
+        A(MemorySelectV3Form.IsCaravanAnimal(23909, new V3Settings().CaravanAnimals) && !MemorySelectV3Form.IsCaravanAnimal(1912, new V3Settings().CaravanAnimals) &&
+            !MemorySelectV3Form.IsCaravanAnimal(0, new V3Settings().CaravanAnimals) && !MemorySelectV3Form.IsCaravanAnimal(23909, null),
+            "A ridden animal is told from the stable's mount by its model");
+
+        // ---- the new caravan routes ----
+        var routeNames = TradeRoutes.Routes.Select(r => r[0] + ">" + r[1]).ToList();
+        A(new[] { "Samarkand>Constantinople", "Constantinople>Samarkand", "Jangan>Nanzhang", "Nanzhang>Jangan" }.All(routeNames.Contains) &&
+            new[] { "Samarkand", "Constantinople", "Nanzhang" }.All(TradeRoutes.Towns.Contains),
+            "Samarkand - Constantinople (both ways) and Jangan - Nanzhang are caravan routes with their own trader towns");
+        Func<double, double, Position> at = (x, y) => { var p = V2Rules.Center(x, y, 0); float h; if (ExpeditionRules.TryGround(p, out h)) p.Height = h; return p; };
+        var samarkandPoint = at(-5280, 2784);
+        var constantinoplePoint = at(-10700, 2600);
+        var there = TradeRoutes.PlanWalk(samarkandPoint, constantinoplePoint);
+        var backAgain = TradeRoutes.PlanWalk(constantinoplePoint, samarkandPoint);
+        A(there.Count > 20 && backAgain.Count > 20 && there.Last().To.Point().Distance(constantinoplePoint) < 80 && backAgain.Last().To.Point().Distance(samarkandPoint) < 80,
+            "Samarkand - Constantinople is planned in both directions over roads");
+        var janganPoint = at(6512, 1008);
+        var nanzhangPoint = at(5955.6, -1757.4);
+        var toNanzhang = TradeRoutes.PlanWalk(janganPoint, nanzhangPoint);
+        var fromNanzhang = TradeRoutes.PlanWalk(nanzhangPoint, janganPoint);
+        A(toNanzhang.Count > 100 && toNanzhang.Last().To.Point().Distance(nanzhangPoint) < 80 && fromNanzhang.Count > 100 && fromNanzhang.Last().To.Point().Distance(janganPoint) < 80,
+            "Jangan - Nanzhang is planned in both directions");
+        A(TradeRoutes.RoadWaypoints(janganPoint, nanzhangPoint).Count == TradeRoutes.JanganNanzhangRoad.Length &&
+            TradeRoutes.RoadWaypoints(nanzhangPoint, janganPoint).First().Distance(at(6159, -1710)) < 5 && TradeRoutes.RoadWaypoints(samarkandPoint, constantinoplePoint) == null,
+            "The marked road is followed from Jangan, reversed from Nanzhang, and used for no other route");
+        A(!toNanzhang.Concat(fromNanzhang).Any(s => s.From != null && ExpeditionRules.Network.Links.Any(l => l.From == s.From.Id && l.To == s.To.Id && (s.To.Id == 252 || s.From.Id == 252))),
+            "The Nanzhang road never uses the gate teleport");
+
         // ---- the forced update check ----
         A(MemorySelectV3Form.UpdateCheckSeconds == 15 && MemorySelectV3Form.UpdateGraceSeconds >= 1 && MemorySelectV3Form.UpdateGraceSeconds <= 10,
             "A newer version is looked for every 15 seconds and installed within seconds of being found");

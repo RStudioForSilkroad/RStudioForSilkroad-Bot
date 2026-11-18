@@ -144,7 +144,7 @@ static class Fancy
             text = filled ? Color.White : s.Kind == ButtonKind.Ghost ? Ui.Accent : Ui.Text;
         }
         var r = new Rectangle(1, 1, b.Width - 3, b.Height - 3);
-        using (var path = Ui.RoundRect(r, 6))
+        using (var path = Ui.RoundRect(r, 8))
         {
             using (var brush = new SolidBrush(fill))
                 g.FillPath(brush, path);
@@ -219,9 +219,13 @@ sealed class CardBox : Panel
         var g = e.Graphics;
         g.Clear(Parent == null ? Ui.Canvas : Parent.BackColor);
         g.SmoothingMode = SmoothingMode.AntiAlias;
-        var r = new Rectangle(0, 0, Width - 1, Height - 1);
+        var r = new Rectangle(0, 0, Width - 1, Height - 3);
         if (r.Width < 20 || r.Height < 20)
             return;
+        // A very faint shadow two pixels under the card lifts it off the canvas without a hard edge.
+        using (var shadow = Ui.RoundRect(new Rectangle(1, 2, r.Width - 2, r.Height), Ui.Radius))
+        using (var shade = new SolidBrush(Color.FromArgb(9, 40, 60, 100)))
+            g.FillPath(shade, shadow);
         using (var path = Ui.RoundRect(r, Ui.Radius))
         {
             using (var fill = new SolidBrush(Ui.Surface))

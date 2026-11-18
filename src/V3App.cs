@@ -638,6 +638,7 @@ sealed partial class MemorySelectV3Form : Form
                 RefreshRoutes();
             }
             SkillTick(now);
+            UpdateCaravanAnimalText();
             if (grim.Running && grim.Location != null && ExpeditionRules.Cleared(completionNotice.Message, grim.Location.Code))
                 snapshot.Grim.Text = completionNotice.Message;
             bool began = (!active || (snapshot.PlayerAlive && recovery.Phase == RecoveryPhase.Ready)) && grim.Observe(snapshot);

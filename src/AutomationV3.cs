@@ -432,6 +432,9 @@ sealed class V3Settings
     public int ExplorerModel = ExplorerSpots.DefaultModel;
     public bool ExplorerTalk = true;
     public int ExplorerTalkOption = 1;
+    // Models of the trade (caravan) animals. They are ridden like a mount but are not the stable's mount: the bot never sends mount or
+    // dismount calls while one is ridden. 23909 = Buffalo.
+    public List<int> CaravanAnimals = new List<int> { 23909 };
     public List<string> DungeonQueue = new List<string>();
     public bool QueueReturnScroll = true;
     public bool HideWhatsNew;

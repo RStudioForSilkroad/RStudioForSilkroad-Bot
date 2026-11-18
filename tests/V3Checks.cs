@@ -215,11 +215,11 @@ partial class V3Checks
         // Nanzhang counts as a town (death recovery and trip planning wait for a town); all six city sectors are listed.
         A(V3Data.Town(V2Rules.Center(5643.3, -1885.3, 462f)) == "Nanzhang" && V3Data.Town(V2Rules.Center(5938.6, -1706.2, 462f)) == "Nanzhang" &&
             V3Data.Town(V2Rules.Center(6100.0, -1541.0, 462f)) == "Nanzhang", "Nanzhang city sectors are recognised as a town");
-        A(TradeRoutes.TownKey(V2Rules.Center(5643.3, -1885.3, 462f)) == null, "Nanzhang is not a caravan town");
+        A(TradeRoutes.TownKey(V2Rules.Center(5643.3, -1885.3, 462f)) == "Nanzhang", "Nanzhang is a caravan town (reached on foot from Jangan)");
         A(TradeRoutes.TownKey(V2Rules.Center(148.8, 85.1, 0f)) == "Hotan" && TradeRoutes.TownKey(V2Rules.Center(6512, 1008, 0f)) == "Jangan" &&
             TradeRoutes.TownKey(V2Rules.Center(3495, 2076, 0f)) == "Donwhang", "Trader towns: Hotan (Kingdom sector), Jangan and Donwhang");
         // Routes: the four requested directions exist.
-        A(TradeRoutes.Routes.Length == 6 && TradeRoutes.Routes.Any(r => r[0] == "Hotan" && r[1] == "Jangan") &&
+        A(TradeRoutes.Routes.Length == 10 && TradeRoutes.Routes.Any(r => r[0] == "Hotan" && r[1] == "Jangan") &&
             TradeRoutes.Routes.Any(r => r[0] == "Jangan" && r[1] == "Hotan") &&
             TradeRoutes.Routes.Any(r => r[0] == "Hotan" && r[1] == "Donwhang") &&
             TradeRoutes.Routes.Any(r => r[0] == "Donwhang" && r[1] == "Hotan") &&
