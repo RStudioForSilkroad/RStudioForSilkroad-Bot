@@ -360,9 +360,10 @@ sealed partial class MemorySelectV3Form : Form
     readonly System.Windows.Forms.Timer updateTimer = new System.Windows.Forms.Timer();
     BackgroundWorker updateWorker;
     StagedUpdate stagedUpdate;
-    long nextUpdateCheck, updateApplyAt;
-    // The check runs every 15 seconds and a newer version is installed at once: it cannot be switched off.
-    internal const int UpdateCheckSeconds = 15, UpdateGraceSeconds = 5;
+    long nextUpdateCheck, updateApplyAt, updateDeferredSince = -1;
+    // The check runs every 15 seconds and a newer version is installed at once (as soon as the bot is idle): it cannot be switched off.
+    // Once a new version is known (or its installation failed) the next check is UpdateKnownCheckSeconds away.
+    internal const int UpdateCheckSeconds = 15, UpdateGraceSeconds = 5, UpdateKnownCheckSeconds = 300;
     internal readonly Label updateBanner = new Label();
 
     void BuildUpdateControls()
@@ -370,6 +371,17 @@ sealed partial class MemorySelectV3Form : Form
         var page = new TabPage("Güncelleme/Kılavuz");
         tabs.TabPages.Add(page);
         var panel = PageCard(page, "Güncelleme ve kılavuz", 780);
+        themePicker.Width = 130;
+        themePicker.DropDownStyle = ComboBoxStyle.DropDownList;
+        themePicker.Items.AddRange(Ui.AccentNames);
+        var appearance = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0, 0, 0, 8) };
+        themeLabel.Margin = new Padding(0, 6, 8, 0);
+        themePicker.Margin = new Padding(0, 2, 16, 0);
+        appearance.Controls.Add(themeLabel);
+        appearance.Controls.Add(themePicker);
+        whatsNewButton.Margin = new Padding(0);
+        appearance.Controls.Add(whatsNewButton);
+        panel.Controls.Add(appearance);
         autoUpdate.Text = "Zorunlu güncelleme kontrolü · " + UpdateCheckSeconds + " saniyede bir, yeni sürüm hemen kurulur";
         autoUpdate.AutoSize = true;
         autoUpdate.Margin = new Padding(0, 0, 0, 8);
@@ -481,6 +493,8 @@ sealed partial class MemorySelectV3Form : Form
                 ". Uygulama yeniden açılacak.";
             Log("Kritik güncelleme: " + stagedUpdate.Manifest.Version + " bulundu, " + UpdateGraceSeconds + " sn içinde kurulacak.");
             updateApplyAt = clock.ElapsedMilliseconds + UpdateGraceSeconds * 1000;
+            updateDeferredSince = -1;
+            nextUpdateCheck = clock.ElapsedMilliseconds + UpdateKnownCheckSeconds * 1000;
             ShowUpdateBanner("KRİTİK GÜNCELLEME · Sürüm " + stagedUpdate.Manifest.Version + " yayınlandı · " + UpdateGraceSeconds +
                 " sn içinde güncelleniyor, uygulama kapanıp yeniden açılacak. Güncelleme yapın.");
         };
@@ -497,6 +511,20 @@ sealed partial class MemorySelectV3Form : Form
             ShowUpdateBanner("KRİTİK GÜNCELLEME · Sürüm " + stagedUpdate.Manifest.Version + " hazır · bekleyen eşya / ölüm işlemi bitince hemen kurulacak.");
             return;
         }
+        // A running hunt, an armed or running dungeon or a queue is never cut off by an update: the banner stays and this is looked at again
+        // every second until the bot is idle.
+        bool idle = UpdateGate.Idle(active, grim.Armed, queueRunning, lotteryRunning, resume.Armed);
+        if (!idle && updateDeferredSince < 0)
+            updateDeferredSince = clock.ElapsedMilliseconds;
+        if (!UpdateGate.MayApply(idle, updateDeferredSince < 0 ? 0 : clock.ElapsedMilliseconds - updateDeferredSince, transaction.Pending,
+            active && recovery.Phase != RecoveryPhase.Ready, resumeBusy))
+        {
+            updateStatus.Text = "Güncelleme hazır; çalışan iş / dungeon / sıra bitip bot boşa çıkınca kurulacak.";
+            ShowUpdateBanner("KRİTİK GÜNCELLEME · Sürüm " + stagedUpdate.Manifest.Version + " hazır · çalışan iş bitince (bot boşta olunca) kurulacak.");
+            return;
+        }
+        if (!idle)
+            Log("Güncelleme " + UpdateGate.MaxDeferralMs / 3600000 + " saattir bekliyordu; güvenli bir anda çalışan iş durdurularak kuruluyor.");
         try
         {
             Stop("Güncelleme için otomasyon durduruldu.");
@@ -511,6 +539,8 @@ sealed partial class MemorySelectV3Form : Form
         {
             SkipClosePrompt = false;
             stagedUpdate = null;
+            updateDeferredSince = -1;
+            nextUpdateCheck = clock.ElapsedMilliseconds + UpdateKnownCheckSeconds * 1000;
             updateBanner.Visible = false;
             updateStatus.Text = "Güncelleme başlatılamadı; mevcut sürüm korunuyor: " + e.Message;
             Log(e.ToString());

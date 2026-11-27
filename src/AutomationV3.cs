@@ -16,7 +16,7 @@ static class V3Data
             if (s == null)
                 throw new IOException("Gömülü veri yok: " + name);
             using (var r = new StreamReader(s, Encoding.UTF8))
-                return new JavaScriptSerializer().Deserialize<T>(r.ReadToEnd());
+                return new JavaScriptSerializer { MaxJsonLength = int.MaxValue }.Deserialize<T>(r.ReadToEnd());
         }
     }
 
@@ -41,6 +41,25 @@ sealed class DungeonLocation
     public int InstanceId, GateId, GateModel, Region, InnerRegion;
     public double X, Y, LocalX, LocalY, Height, InnerX, InnerY, InnerHeight;
     public bool RouteVerified;
+
+    // Solo Trial (level 76+) and the Solo 85 trials of the 18 November update (level 85) are entered the same way; only the gate differs.
+    internal const string Solo85 = "Solo 85";
+
+    internal bool IsSolo
+    {
+        get { return Mode == "Solo Trial" || Mode == Solo85; }
+    }
+
+    internal string SoloGateCode
+    {
+        get { return "GATE_NE_GRIM_" + Code + (Mode == Solo85 ? "_S85" : "_S"); }
+    }
+
+    // The run-order name: the code, with @85 for the Solo 85 trial of that dungeon.
+    internal string QueueKey
+    {
+        get { return Mode == Solo85 ? Code + "@85" : Code; }
+    }
 
     internal Position Entrance()
     {
@@ -110,18 +129,22 @@ enum RecoveryAction
 sealed class DeathRecovery
 {
     internal RecoveryPhase Phase;
-    internal int Deaths;
     internal Position DeathPoint;
     internal long Since;
     internal string Message = "";
     long townStable;
     Position townPoint;
-    bool deadLatched;
+    bool deadLatched, diedNow;
+    // A cleared alive flag is believed only when it stays for ConfirmMs: the flag blips while an instance loads (seen on entering a Solo Trial with
+    // a real-looking position) and the character is alive again a moment later. A real death is latched about ConfirmMs after its first read.
+    internal static long ConfirmMs = 800;
+    long suspectSince = -1;
 
     internal void Begin()
     {
         Phase = RecoveryPhase.Ready;
         deadLatched = false;
+        suspectSince = -1;
         townStable = 0;
         townPoint = null;
     }
@@ -131,12 +154,12 @@ sealed class DeathRecovery
         Phase = RecoveryPhase.Halted;
     }
 
-    internal void ResetCount()
+    // True once for each new death (the caller resets what it was doing).
+    internal bool TakeDeath()
     {
-        if (Phase != RecoveryPhase.Ready && Phase != RecoveryPhase.Halted)
-            throw new InvalidOperationException("Önce kurtarma işlemini durdur.");
-        Deaths = 0;
-        deadLatched = false;
+        bool died = diedNow;
+        diedNow = false;
+        return died;
     }
 
     RecoveryAction Halt(string text)
@@ -146,21 +169,24 @@ sealed class DeathRecovery
         return RecoveryAction.Stop;
     }
 
-    internal RecoveryAction Observe(Snapshot s, long now, bool focused, bool enabled, int waitSeconds, int maxDeaths)
+    internal RecoveryAction Observe(Snapshot s, long now, bool focused, bool enabled, int waitSeconds)
     {
         if (Phase == RecoveryPhase.Halted)
             return RecoveryAction.Stop;
-        if (!s.PlayerAlive && !deadLatched)
+        bool dead = !s.PlayerAlive && PositionReal(s.Player);
+        if (!dead)
+            suspectSince = -1;
+        else if (!deadLatched && suspectSince < 0)
+            suspectSince = now;
+        if (dead && !deadLatched && now - suspectSince >= ConfirmMs)
         {
             deadLatched = true;
-            Deaths++;
+            diedNow = true;
             DeathPoint = s.Player.Copy();
             Since = now;
             townStable = 0;
             townPoint = null;
             Phase = RecoveryPhase.WaitingRevive;
-            if (Deaths >= maxDeaths)
-                return Halt("Ölüm sınırına ulaşıldı (" + Deaths + "/" + maxDeaths + "). Bot durdu.");
             if (!enabled)
                 return Halt("Karakter öldü; otomatik geri dönüş kapalı.");
         }
@@ -177,7 +203,7 @@ sealed class DeathRecovery
                 return RecoveryAction.Resume;
             }
             long left = Math.Max(0, waitSeconds - (now - Since) / 1000);
-            Message = "Canlandırılma bekleniyor · " + left + " sn · Ölüm " + Deaths + "/" + maxDeaths;
+            Message = "Canlandırılma bekleniyor · " + left + " sn";
             if (left == 0 && focused)
             {
                 Phase = RecoveryPhase.TownRequested;
@@ -232,6 +258,12 @@ sealed class DeathRecovery
                 return Halt("Reverse dönüşü doğrulanmadı; tekrar scroll tüketilmeden durdu.");
         }
         return RecoveryAction.None;
+    }
+
+    // The loading screen reads as region 0 (X -25920, Y -17664) with the alive flag cleared: that is not a death.
+    internal static bool PositionReal(Position p)
+    {
+        return p != null && p.Region != 0;
     }
 
     internal static bool SameSpace(Position a, Position b)
@@ -360,7 +392,7 @@ sealed class GrimRun
         }
         if (Rooms != null)
             Rooms.Observe(s.Monsters.Where(m => IsRegion(m.Position)));
-        if (s.Grim.Completed || (Location.Mode == "Solo Trial" && ExpeditionRules.Cleared(s.Grim.Text, Location.Code)))
+        if (s.Grim.Completed || (Location.IsSolo && ExpeditionRules.Cleared(s.Grim.Text, Location.Code)))
         {
             Complete = true;
             Running = Armed = false;
@@ -373,8 +405,8 @@ sealed class GrimRun
     {
         if (Floor == null)
             return;
-        Floor.Advance(sender.NavigationProbe, budget);
-        Floor.ObservePosition(s.Player, sender.NavigationProbe);
+        Floor.Advance(sender.NavigationProbe, budget, sender.NavigationProbeMany);
+        Floor.ObservePosition(s.Player, sender.NavigationProbe, sender.NavigationProbeMany);
         if (s.Monsters.Any(m => m.Alive && IsRegion(m.Position)))
         {
             SeenMob = true;
@@ -420,7 +452,10 @@ static class DungeonExtensions
 
 sealed class V3Settings
 {
+    public bool UseReverseTravel = true;
     public bool ReturnBeforeTravel, TravelMount, AutoEnterGrim, UniqueAlert, SkillList;
+    // A single Grim run (not the queue) leaves the dungeon through the Dungeon Exit NPC when it is finished.
+    public bool GrimAutoExit = true;
     public List<SkillSlot> Skills = new List<SkillSlot>();
     public bool BackgroundWalk = true, NotifyDone = true;
     public bool BackgroundKeys;
@@ -429,15 +464,30 @@ sealed class V3Settings
     public string ActiveSkillProfile = "";
     public List<int> ExplorerDone = new List<int>();
     public bool ExplorerSkipDone = true;
+    public bool ExplorerReturnBetween = true;
     public int ExplorerModel = ExplorerSpots.DefaultModel;
+    // Automatic potions (phBot's Protection page): off by default, the game's own macro may already do this.
+    public bool NanzhangCollect = true;
+    public bool AutoHpPotion, AutoMpPotion;
+    public int HpPotionPercent = 50, MpPotionPercent = 30;
     public bool ExplorerTalk = true;
     public int ExplorerTalkOption = 1;
+    // 1 once the option was reset to 1 (the live test: 1 opens the NPC's dialog, 2 opens nothing); older files carried a hand-tried 2.
+    public int ExplorerTalkOptionRevision;
     // Models of the trade (caravan) animals. They are ridden like a mount but are not the stable's mount: the bot never sends mount or
     // dismount calls while one is ridden. 23909 = Buffalo.
     public List<int> CaravanAnimals = new List<int> { 23909 };
     public List<string> DungeonQueue = new List<string>();
     public bool QueueReturnScroll = true;
     public bool HideWhatsNew;
+    public bool AutoWake = true;
+    // After the game closed: connect to the new game with the same character and start the job again.
+    public bool AutoResume;
+    // Lottery page: positions of the lottery window's buttons (dx, dy from the middle of the game's drawing area; Quick, Buy, Clear, Confirm;
+    // int.MinValue = not set), gold kept back, the price of one coupon and the most coupons to buy (0 = as many as the gold allows).
+    public List<int> LotteryPoints = new List<int>();
+    public long LotteryReserve;
+    public int LotteryCost = 20000, LotteryMax;
     public List<int> BlockedRoadCells = new List<int>();
     public string LastSeenVersion = "";
     public List<string> LearnedPaths = new List<string>();
@@ -449,7 +499,7 @@ sealed class V3Settings
     public int HotkeyKey, HotkeyModifiers;
     public List<string> Mobs = new List<string>();
     public double X, Y, Range = 150;
-    public int Delay = 100, Timeout = 10, ReviveSeconds = 30, DeathLimit = 5, Deaths;
+    public int Delay = 100, Timeout = 10, ReviveSeconds = 30;
     public string Keys = "1 2 3 4 5 6", BerserkClass = "Giant";
     public bool SendKeys = true, GoHome = true, Berserk = true, Speed = true, Repair = true, Recovery = true;
 

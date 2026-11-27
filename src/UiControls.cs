@@ -36,7 +36,7 @@ static class Fancy
         for (Control p = c.Parent; p != null; p = p.Parent)
             if (p.BackColor.A == 255)
                 return p.BackColor;
-        return Ui.Canvas;
+        return Ui.Stone;
     }
 
     internal static void Kind(Button b, ButtonKind kind)
@@ -60,10 +60,10 @@ static class Fancy
         b.UseVisualStyleBackColor = false;
         b.Cursor = Cursors.Hand;
         b.Font = Ui.BodyBold;
-        b.BackColor = Ui.Surface;
-        b.ForeColor = Ui.Surface;
-        b.FlatAppearance.MouseOverBackColor = Ui.Surface;
-        b.FlatAppearance.MouseDownBackColor = Ui.Surface;
+        b.BackColor = Ui.Card;
+        b.ForeColor = Ui.Card;
+        b.FlatAppearance.MouseOverBackColor = Ui.Card;
+        b.FlatAppearance.MouseDownBackColor = Ui.Card;
         Ui.DoubleBuffer(b);
         b.MouseEnter += delegate
         {
@@ -104,8 +104,8 @@ static class Fancy
         bool filled = s.Kind == ButtonKind.Primary || s.Kind == ButtonKind.Success || s.Kind == ButtonKind.Danger;
         if (!b.Enabled)
         {
-            fill = s.Kind == ButtonKind.Ghost ? BackOf(b) : Color.FromArgb(238, 241, 246);
-            border = s.Kind == ButtonKind.Ghost ? BackOf(b) : Color.FromArgb(225, 230, 238);
+            fill = s.Kind == ButtonKind.Ghost ? BackOf(b) : Ui.SurfaceAlt;
+            border = s.Kind == ButtonKind.Ghost ? BackOf(b) : Ui.Divider;
             text = Ui.TextDisabled;
         }
         else
@@ -121,12 +121,12 @@ static class Fancy
                 case ButtonKind.Success:
                     baseFill = Ui.Success;
                     hoverFill = Ui.SuccessHover;
-                    pressedFill = Ui.Mix(Ui.Success, Color.Black, 0.4f);
+                    pressedFill = Ui.Mix(Ui.Success, Color.Black, 0.25f);
                     break;
                 case ButtonKind.Danger:
                     baseFill = Ui.Danger;
                     hoverFill = Ui.DangerHover;
-                    pressedFill = Ui.Mix(Ui.Danger, Color.Black, 0.4f);
+                    pressedFill = Ui.Mix(Ui.Danger, Color.Black, 0.25f);
                     break;
                 case ButtonKind.Ghost:
                     baseFill = BackOf(b);
@@ -134,17 +134,18 @@ static class Fancy
                     pressedFill = Ui.AccentTintStrong;
                     break;
                 default:
-                    baseFill = Ui.Surface;
-                    hoverFill = Ui.AccentTint;
-                    pressedFill = Ui.AccentTintStrong;
+                    // the plain push button: a dark olive plate with a bronze edge that turns gold under the pointer
+                    baseFill = Ui.SurfaceAlt;
+                    hoverFill = Ui.Mix(Ui.SurfaceAlt, Ui.Accent, 0.16f);
+                    pressedFill = Ui.Mix(Ui.SurfaceAlt, Ui.Accent, 0.30f);
                     break;
             }
             fill = s.Down ? pressedFill : Ui.Mix(baseFill, hoverFill, s.T);
-            border = filled || s.Kind == ButtonKind.Ghost ? fill : Ui.Mix(Ui.BorderStrong, Ui.Accent, s.T);
-            text = filled ? Color.White : s.Kind == ButtonKind.Ghost ? Ui.Accent : Ui.Text;
+            border = filled || s.Kind == ButtonKind.Ghost ? fill : Ui.Mix(Ui.Bronze, Ui.Accent, s.T);
+            text = s.Kind == ButtonKind.Primary ? Ui.OnAccent : filled ? Ui.OnStatus : s.Kind == ButtonKind.Ghost ? Ui.Accent : Ui.Ink;
         }
         var r = new Rectangle(1, 1, b.Width - 3, b.Height - 3);
-        using (var path = Ui.RoundRect(r, 8))
+        using (var path = Ui.RoundRect(r, Ui.Radius))
         {
             using (var brush = new SolidBrush(fill))
                 g.FillPath(brush, path);
@@ -154,12 +155,67 @@ static class Fancy
         if (b.Focused && b.Enabled)
         {
             var ring = new Rectangle(0, 0, b.Width - 1, b.Height - 1);
-            using (var path = Ui.RoundRect(ring, 7))
-                using (var pen = new Pen(filled ? Ui.Text : Ui.Accent, 2f))
+            using (var path = Ui.RoundRect(ring, Ui.Radius))
+                using (var pen = new Pen(filled ? Ui.Ink : Ui.Accent, 1.5f))
                     g.DrawPath(pen, path);
         }
         TextRenderer.DrawText(g, b.Text, b.Font, new Rectangle(6, 0, b.Width - 12, b.Height), text,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+    }
+
+    // Check boxes in the gold-framed manner: a small dark box with a bronze frame and, when ticked, a gold frame and a gold tick.
+    static readonly System.Collections.Generic.HashSet<CheckBox> styledChecks = new System.Collections.Generic.HashSet<CheckBox>();
+
+    internal static void StyleCheck(CheckBox c)
+    {
+        if (c is ChipBox || styledChecks.Contains(c))
+            return;
+        styledChecks.Add(c);
+        c.FlatStyle = FlatStyle.Standard;
+        c.UseVisualStyleBackColor = false;
+        c.Cursor = Cursors.Hand;
+        Ui.DoubleBuffer(c);
+        bool over = false;
+        c.MouseEnter += delegate
+        {
+            over = true;
+            c.Invalidate();
+        };
+        c.MouseLeave += delegate
+        {
+            over = false;
+            c.Invalidate();
+        };
+        c.CheckedChanged += delegate { c.Invalidate(); };
+        c.EnabledChanged += delegate { c.Invalidate(); };
+        c.GotFocus += delegate { c.Invalidate(); };
+        c.LostFocus += delegate { c.Invalidate(); };
+        c.Disposed += delegate { styledChecks.Remove(c); };
+        c.Paint += delegate(object o, PaintEventArgs e) { DrawCheck(c, e.Graphics, over); };
+        c.Invalidate();
+    }
+
+    static void DrawCheck(CheckBox c, Graphics g, bool over)
+    {
+        if (c.Width < 8 || c.Height < 8)
+            return;
+        g.Clear(BackOf(c));
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        var box = new Rectangle(1, Math.Max(1, (c.Height - 14) / 2), 14, 14);
+        bool on = c.Checked, enabled = c.Enabled;
+        using (var fill = new SolidBrush(enabled ? Ui.Field : Ui.Card))
+            g.FillRectangle(fill, box);
+        Color edge = !enabled ? Ui.Divider : on ? Ui.Accent : over ? Ui.Mix(Ui.BorderStrong, Ui.Accent, 0.5f) : Ui.BorderStrong;
+        using (var pen = new Pen(edge, 1f))
+            g.DrawRectangle(pen, box.X, box.Y, box.Width - 1, box.Height - 1);
+        if (on)
+            Ui.DrawTick(g, Rectangle.Inflate(box, -1, -1), enabled ? Ui.Accent : Ui.TextDisabled);
+        if (c.Focused)
+            using (var pen = new Pen(Color.FromArgb(150, Ui.Accent)) { DashStyle = DashStyle.Dot })
+                g.DrawRectangle(pen, box.X - 2, box.Y - 2, box.Width + 3, box.Height + 3);
+        var area = new Rectangle(20, 0, Math.Max(0, c.Width - 20), c.Height);
+        TextRenderer.DrawText(g, c.Text, c.Font, area, enabled ? c.ForeColor : Ui.TextDisabled,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix | TextFormatFlags.NoPadding);
     }
 
     static void Step(object sender, EventArgs e)
@@ -186,11 +242,12 @@ static class Fancy
     }
 }
 
-// A white rounded card with a title and a hairline under it; the content goes into the card's padding area.
+// A group box in the MSRO manner: a thin bronze frame with the title sunk into its top line (the line breaks behind the title) and an optional
+// counter badge after it ("Saldırı 6"). The content goes into the padding area.
 sealed class CardBox : Panel
 {
-    internal const int TitleHeight = 44;
-    string title;
+    internal const int TitleHeight = 18;
+    string title, badge;
 
     internal CardBox(string title)
     {
@@ -198,8 +255,8 @@ sealed class CardBox : Panel
         AutoSize = true;
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(Ui.Pad, TitleHeight + 6, Ui.Pad, Ui.Pad);
-        Margin = new Padding(0, 0, 0, 12);
-        BackColor = Ui.Surface;
+        Margin = new Padding(0, 0, 0, 10);
+        BackColor = Ui.Card;
         Ui.DoubleBuffer(this);
         ResizeRedraw = true;
     }
@@ -214,29 +271,45 @@ sealed class CardBox : Panel
         }
     }
 
+    // The counter drawn in the accent colour after the title; null or empty for none.
+    internal string Badge
+    {
+        get { return badge; }
+        set
+        {
+            badge = value;
+            Invalidate();
+        }
+    }
+
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(Parent == null ? Ui.Canvas : Parent.BackColor);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        var r = new Rectangle(0, 0, Width - 1, Height - 3);
-        if (r.Width < 20 || r.Height < 20)
+        g.Clear(Parent == null ? Ui.Stone : Parent.BackColor);
+        var frame = new Rectangle(0, 8, Width - 1, Height - 9);
+        if (frame.Width < 20 || frame.Height < 12)
             return;
-        // A very faint shadow two pixels under the card lifts it off the canvas without a hard edge.
-        using (var shadow = Ui.RoundRect(new Rectangle(1, 2, r.Width - 2, r.Height), Ui.Radius))
-        using (var shade = new SolidBrush(Color.FromArgb(9, 40, 60, 100)))
-            g.FillPath(shade, shadow);
-        using (var path = Ui.RoundRect(r, Ui.Radius))
+        using (var fill = new SolidBrush(Ui.Card))
+            g.FillRectangle(fill, frame);
+        const TextFormatFlags flags = TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix |
+            TextFormatFlags.SingleLine;
+        string text = title ?? "";
+        int max = Math.Max(10, Width - 2 * Ui.Pad - 8);
+        int titleWidth = Math.Min(max, TextRenderer.MeasureText(text, Ui.Heading, new Size(2000, TitleHeight), flags).Width);
+        int badgeWidth = string.IsNullOrEmpty(badge) ? 0 : TextRenderer.MeasureText(badge, Ui.Heading, new Size(2000, TitleHeight), flags).Width + 8;
+        int label = Ui.Pad - 4, gap = titleWidth + badgeWidth + 12;
+        // the frame, broken where the title sits
+        using (var pen = new Pen(Ui.Bronze))
         {
-            using (var fill = new SolidBrush(Ui.Surface))
-                g.FillPath(fill, path);
-            using (var pen = new Pen(Ui.Border))
-                g.DrawPath(pen, path);
+            g.DrawLine(pen, frame.X, frame.Y, label, frame.Y);
+            g.DrawLine(pen, label + gap, frame.Y, frame.Right, frame.Y);
+            g.DrawLine(pen, frame.X, frame.Y, frame.X, frame.Bottom);
+            g.DrawLine(pen, frame.Right, frame.Y, frame.Right, frame.Bottom);
+            g.DrawLine(pen, frame.X, frame.Bottom, frame.Right, frame.Bottom);
         }
-        TextRenderer.DrawText(g, title ?? "", Ui.Heading, new Rectangle(Ui.Pad, 0, Width - 2 * Ui.Pad, TitleHeight), Ui.Text,
-            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        using (var line = new Pen(Ui.Divider))
-            g.DrawLine(line, 1, TitleHeight, Width - 2, TitleHeight);
+        TextRenderer.DrawText(g, text, Ui.Heading, new Rectangle(label + 6, 0, titleWidth, TitleHeight), Ui.Gold, flags | TextFormatFlags.EndEllipsis);
+        if (badgeWidth > 0)
+            TextRenderer.DrawText(g, badge, Ui.Heading, new Rectangle(label + 6 + titleWidth + 8, 0, badgeWidth, TitleHeight), Ui.Accent, flags);
     }
 }
 
@@ -280,7 +353,7 @@ sealed class TabStrip : Control
     internal TabStrip(TabControl target)
     {
         this.target = target;
-        Height = 42;
+        Height = 36;
         Dock = DockStyle.Top;
         TabStop = true;
         Cursor = Cursors.Hand;
@@ -365,7 +438,7 @@ sealed class TabStrip : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(Ui.Surface);
+        g.Clear(Ui.Stone);
         var rects = TabRects();
         for (int i = 0; i < rects.Length; i++)
         {
@@ -374,7 +447,7 @@ sealed class TabStrip : Control
             if (!selected && i == hover)
                 using (var tint = new SolidBrush(Ui.AccentTint))
                     g.FillRectangle(tint, r.X, 4, r.Width, r.Height - 4);
-            TextRenderer.DrawText(g, target.TabPages[i].Text, selected ? Ui.BodyBold : Ui.Body, r, selected ? Ui.Accent : Ui.TextSecondary,
+            TextRenderer.DrawText(g, target.TabPages[i].Text, selected ? Ui.BodyBold : Ui.Body, r, selected ? Ui.Gold : Ui.TextSecondary,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
             if (selected)
                 using (var bar = new SolidBrush(Ui.Accent))
@@ -383,12 +456,12 @@ sealed class TabStrip : Control
                 using (var pen = new Pen(Ui.Accent) { DashStyle = DashStyle.Dot })
                     g.DrawRectangle(pen, r.X + 2, 6, r.Width - 5, r.Height - 12);
         }
-        using (var line = new Pen(Ui.Border))
+        using (var line = new Pen(Ui.Bronze))
             g.DrawLine(line, 0, Height - 1, Width, Height - 1);
     }
 }
 
-// A rounded pill that works as a check box: filled with the accent colour when on, outlined when off.
+// A wide tile that works as a check box (MSRO's "Mob türleri" boxes): a near-black tile when off, a bronze tile with a gold frame and a gold tick when on.
 sealed class ChipBox : CheckBox
 {
     bool over;
@@ -412,35 +485,46 @@ sealed class ChipBox : CheckBox
 
     protected override void OnPaint(PaintEventArgs e)
     {
-        Color back = Parent != null ? Parent.BackColor : Ui.Canvas;
-        e.Graphics.Clear(back.A == 255 ? back : Ui.Canvas);
+        Color back = Parent != null ? Parent.BackColor : Ui.Stone;
+        e.Graphics.Clear(back.A == 255 ? back : Ui.Stone);
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        var rect = new Rectangle(1, 1, Width - 3, Height - 3);
-        Color fill = Checked ? Ui.Accent : (over ? Ui.AccentTint : Ui.Surface);
-        Color line = Checked ? Ui.Accent : (over ? Ui.Accent : Ui.Border);
-        Color ink = Checked ? Color.White : Ui.TextSecondary;
+        var rect = new Rectangle(0, 0, Width - 1, Height - 1);
+        Color fill = Checked ? Ui.RowFill : (over ? Ui.SurfaceAlt : Ui.Field);
+        Color line = Checked ? Ui.RowEdge : (over ? Ui.BorderStrong : Ui.Divider);
+        Color ink = Checked ? Ui.Gold : Ui.TextSecondary;
         if (!Enabled)
         {
-            fill = Ui.SurfaceAlt;
-            line = Ui.Border;
-            ink = Ui.TextMuted;
+            fill = Ui.Card;
+            line = Ui.Divider;
+            ink = Ui.TextDisabled;
         }
-        using (var path = Ui.RoundRect(rect, rect.Height / 2))
         using (var brush = new SolidBrush(fill))
+            e.Graphics.FillRectangle(brush, rect);
         using (var pen = new Pen(line))
-        {
-            e.Graphics.FillPath(brush, path);
-            e.Graphics.DrawPath(pen, path);
-        }
+            e.Graphics.DrawRectangle(pen, rect);
+        var box = new Rectangle(9, (Height - 14) / 2, 14, 14);
+        using (var pen = new Pen(Checked ? Ui.Accent : Ui.BorderStrong))
+            e.Graphics.DrawRectangle(pen, box.X, box.Y, box.Width - 1, box.Height - 1);
+        if (Checked)
+            Ui.DrawTick(e.Graphics, Rectangle.Inflate(box, -1, -1), Enabled ? Ui.Accent : Ui.TextDisabled);
         if (Focused && ShowFocusCues)
-        {
-            var ring = new Rectangle(rect.X + 3, rect.Y + 3, rect.Width - 6, rect.Height - 6);
-            using (var path = Ui.RoundRect(ring, ring.Height / 2))
-            using (var pen = new Pen(Color.FromArgb(Checked ? 200 : 140, Ui.Accent)) { DashStyle = DashStyle.Dot })
-                e.Graphics.DrawPath(pen, path);
-        }
-        TextRenderer.DrawText(e.Graphics, Text, Ui.Body, rect, ink,
-            TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine |
-            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+            using (var pen = new Pen(Color.FromArgb(160, Ui.Accent)) { DashStyle = DashStyle.Dot })
+                e.Graphics.DrawRectangle(pen, 3, 3, Width - 7, Height - 7);
+        TextRenderer.DrawText(e.Graphics, Text, Ui.Body, new Rectangle(30, 0, Width - 36, Height), ink,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPadding);
+    }
+}
+
+// A panel whose background is the stone surface (faint gradient and grain) in its BackColor; used for the outer frame of the window.
+sealed class StonePanel : Panel
+{
+    internal StonePanel()
+    {
+        SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.ResizeRedraw, true);
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        Ui.PaintStone(e.Graphics, ClientRectangle, BackColor.A == 255 ? BackColor : Ui.Back, false);
     }
 }

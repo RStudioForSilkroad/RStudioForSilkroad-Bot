@@ -44,7 +44,7 @@ sealed class GrimRooms
     readonly Dictionary<uint, int> seen = new Dictionary<uint, int>();
     readonly HashSet<uint> dead = new HashSet<uint>();
     readonly HashSet<Position> visited = new HashSet<Position>();
-    readonly int[] kills;
+    readonly int[] kills, sweeps;
     int room;
     Position destination;
 
@@ -80,26 +80,39 @@ sealed class GrimRooms
             return list.ToArray();
         }).ToArray();
         kills = new int[areas.Length];
+        sweeps = new int[areas.Length];
     }
 
     internal static GrimRooms Load(DungeonLocation location, FloorNavigation floor)
     {
         int index;
-        if (location.Mode != "Solo Trial" || !floor.Done || !int.TryParse(location.Code.Substring(1), out index) ||
+        if (!location.IsSolo || !floor.Done || !int.TryParse(location.Code.Substring(1), out index) ||
             index < 1 || index > Marks.Length)
             return null;
         return new GrimRooms(Marks[index - 1], floor);
     }
 
+    // The New Era Grim treasure boxes (one model per dungeon mode: ..._S85 is the Solo 85 box, 150000 HP). The box appears right after the last
+    // monster dies. Recognised by model as well as by name: a model missing from the name table once left the box unnamed ("Bilinmeyen #64835"),
+    // it was not taken for the optional monster it is, and the character walked off to the exit without breaking it.
+    internal const uint FirstBoxModel = 64830, LastBoxModel = 64838;
+
+    internal static bool IsBox(Monster mob)
+    {
+        return mob.Model >= FirstBoxModel && mob.Model <= LastBoxModel;
+    }
+
     internal static bool Optional(Monster mob)
     {
-        return mob.Rank == 3 || string.Equals(mob.Name, "Envy", StringComparison.OrdinalIgnoreCase) || string.Equals(mob.Name,
+        return IsBox(mob) || mob.Rank == 3 || string.Equals(mob.Name, "Envy", StringComparison.OrdinalIgnoreCase) || string.Equals(mob.Name,
             "Grim Treasure Box", StringComparison.OrdinalIgnoreCase);
     }
 
+    // The room a monster belongs to: the nearest marked room, however far. (A cut-off distance used to leave monsters of a differently laid out
+    // dungeon without a room: they were never counted, never fought unless they were within reach, and the room was swept again and again.)
     int RoomOf(Monster mob)
     {
-        double best = 90;
+        double best = double.MaxValue;
         int result = -1;
         for (int i = 0; i < areas.Length; i++)
         {
@@ -111,6 +124,12 @@ sealed class GrimRooms
             }
         }
         return result;
+    }
+
+    // Monsters seen alive and not dead yet, per room.
+    int AliveIn(int index)
+    {
+        return seen.Count(pair => pair.Value == index && !dead.Contains(pair.Key));
     }
 
     internal void Observe(IEnumerable<Monster> monsters)
@@ -137,12 +156,14 @@ sealed class GrimRooms
         }
     }
 
+    // The room's monsters and the ones of the next room are fought, and any left alive behind: the next room is cleared on the way, nothing is
+    // walked past. Only monsters of the rooms after that wait.
     internal bool Allows(Monster mob)
     {
         if (Optional(mob) || room == areas.Length)
             return true;
         int index;
-        return (seen.TryGetValue(mob.Uid, out index) ? index : RoomOf(mob)) == room;
+        return (seen.TryGetValue(mob.Uid, out index) ? index : RoomOf(mob)) <= room + 1;
     }
 
     internal Position Next(Position player)
@@ -153,9 +174,17 @@ sealed class GrimRooms
         {
             destination = waypoints[room].Where(point => !visited.Contains(point)).OrderBy(point => point.Distance(player))
                 .FirstOrDefault();
-            // Whole room swept and still fewer than 3 kills: sweep it again.
+            // Whole room swept and still fewer than 3 kills: when no monster of the room is left alive the room is done (sweeping it again finds
+            // nothing, it only wastes steps); otherwise sweep once more, and move on after the second sweep whatever is left.
             if (destination == null)
             {
+                sweeps[room]++;
+                if (AliveIn(room) == 0 || sweeps[room] >= 2)
+                {
+                    room++;
+                    destination = null;
+                    return room == waypoints.Length ? null : Next(player);
+                }
                 foreach (Position point in waypoints[room])
                     visited.Remove(point);
                 destination = waypoints[room].OrderBy(point => point.Distance(player)).FirstOrDefault();
@@ -169,6 +198,11 @@ sealed class GrimRooms
         if (destination != null)
             visited.Add(destination);
         destination = null;
+    }
+
+    internal int Room
+    {
+        get { return room; }
     }
 
     internal string Status

@@ -43,12 +43,29 @@ static class V2Rules
         return BitConverter.ToUInt32(BitConverter.GetBytes(f), 0);
     }
 
+    internal enum Potion { None, Hp, Mp }
+
+    // The kind of a recovery potion or grain by the item's type code (checked on the live client: HP 0x08EC, MP 0x10EC / 0x10ED).
+    internal static Potion PotionOf(ushort type)
+    {
+        int t = type & 0xfffe;
+        return t == 0x08ec ? Potion.Hp : t == 0x10ec ? Potion.Mp : Potion.None;
+    }
+
     internal static bool AllowedItem(BagItem item)
     {
         if (item == null || item.Quantity == 0 || item.Slot < 13 || item.Slot >= 173)
             return false;
+        if (PotionOf(item.Type) != Potion.None)
+            return true;
         return (item.Model == 7100 || item.Model == 63361) ? item.Type == 0x0eec : (item.Model == 3784 || item.Model == 24458) &&
             (item.Type & 0xfffe) == 0x3eec;
+    }
+
+    // The first potion of this kind in the bag (the lowest slot), or null.
+    internal static BagItem PickPotion(IEnumerable<BagItem> items, Potion kind)
+    {
+        return items.Where(i => i != null && PotionOf(i.Type) == kind && AllowedItem(i)).OrderBy(i => i.Slot).FirstOrDefault();
     }
 
     internal static BagItem PickItem(IEnumerable<BagItem> items, bool repair)

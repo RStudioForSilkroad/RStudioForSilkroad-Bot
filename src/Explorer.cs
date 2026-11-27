@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
@@ -29,8 +29,10 @@ public sealed class ExplorerSpot
 
 static class ExplorerSpots
 {
+    // How many times the talk request goes to a found NPC when its dialog window stays empty (the client sometimes opens it before the text arrives).
+    internal const int TalkTries = 3;
+
     internal const int DefaultModel = 60023;
-    internal const string AllAreas = "Tüm harita";
     // Order of the area picker, west to east. Names are the ones ExpeditionRules.Area gives.
     internal static readonly string[] Areas = { "Constantinople", "Samarkand", "Roc", "Hotan", "Donwhang", "Jangan", "Nanzhang" };
     internal static readonly List<ExplorerSpot> All = V3Data.Load<List<ExplorerSpot>>("explorer-spots.json").OrderBy(s => s.N).ToList();
@@ -241,7 +243,7 @@ sealed class ExplorerMapView : Control
             layerCy = cy;
             using (var lg = Graphics.FromImage(layer))
             {
-                lg.Clear(Color.FromArgb(232, 236, 243));
+                lg.Clear(Ui.Field);
                 lg.InterpolationMode = zoom < 1 ? InterpolationMode.HighQualityBicubic : InterpolationMode.Bilinear;
                 lg.PixelOffsetMode = PixelOffsetMode.Half;
                 lg.DrawImage(baseMap, new RectangleF((float)(Width / 2.0 - cx * zoom), (float)(Height / 2.0 - cy * zoom),
@@ -254,10 +256,10 @@ sealed class ExplorerMapView : Control
     protected override void OnPaint(PaintEventArgs e)
     {
         var g = e.Graphics;
-        g.Clear(Color.FromArgb(232, 236, 243));
+        g.Clear(Ui.Field);
         if (baseMap == null)
         {
-            using (var brush = new SolidBrush(Ui.TextMuted))
+            using (var brush = new SolidBrush(Ui.InkMuted))
                 g.DrawString("Harita yükleniyor…", Ui.Body, brush, 12, 12);
             return;
         }
@@ -281,7 +283,8 @@ sealed class ExplorerMapView : Control
             using (var pen = new Pen(Color.White, chosen ? 2.5f : 1.5f))
                 g.DrawEllipse(pen, q.X - r, q.Y - r, r * 2, r * 2);
             if (r >= 9)
-                g.DrawString(s.N.ToString(), numberFont, Brushes.White, new RectangleF(q.X - r - 4, q.Y - r - 1, r * 2 + 8, r * 2 + 2), format);
+                using (var ink = new SolidBrush(state == 1 ? Ui.OnStatus : Ui.OnAccent))
+                    g.DrawString(s.N.ToString(), numberFont, ink, new RectangleF(q.X - r - 4, q.Y - r - 1, r * 2 + 8, r * 2 + 2), format);
         }
         if (Player != null && Player.Outside)
         {
@@ -388,7 +391,10 @@ sealed class ExplorerRun
     internal ExplorerSpot Spot;
     // 0 walking to the spot, 1 walking to the NPC, 2 NPC clicked / waiting for the selection, 3 looking around the spot,
     // 4 the dialog option was sent / waiting before the next spot
-    internal int Phase, Tries, RingIndex, Failures, Total;
+    internal int Phase, Tries, RingIndex, Failures, Total, Talks;
+    // The area of the spot just finished, and whether the way to the next spot starts with a Return Scroll (the next spot is in another area).
+    internal string LastArea;
+    internal bool ReturnFirst;
     internal long Since, PointSince;
     internal uint Uid;
     internal List<Position> Ring = new List<Position>();
@@ -401,7 +407,7 @@ sealed partial class MemorySelectV3Form
     readonly DataGridView explorerGrid = new DataGridView();
     readonly ComboBox explorerArea = new ComboBox();
     readonly Label explorerStatus = new Label();
-    readonly CheckBox explorerSkipDone = new CheckBox();
+    readonly CheckBox explorerSkipDone = new CheckBox(), explorerReturn = new CheckBox();
     readonly NumericUpDown explorerModel = new NumericUpDown();
     readonly NumericUpDown explorerOption = new NumericUpDown();
     readonly CheckBox explorerTalk = new CheckBox();
@@ -437,7 +443,6 @@ sealed partial class MemorySelectV3Form
         explorerArea.DropDownStyle = ComboBoxStyle.DropDownList;
         explorerArea.Width = 176;
         explorerArea.Margin = new Padding(0, 4, 8, 0);
-        explorerArea.Items.Add(ExplorerSpots.AllAreas);
         foreach (string name in ExplorerSpots.Areas)
             explorerArea.Items.Add(name + " · " + ExplorerSpots.All.Count(s => s.Area == name) + " nokta");
         explorerArea.SelectedIndexChanged += delegate
@@ -502,6 +507,13 @@ sealed partial class MemorySelectV3Form
                 SaveSettingsQuietly();
         };
         actions.Controls.Add(explorerSkipDone);
+        ConfigureCheck(explorerReturn, "Bölge değişince Return Scroll ile şehre dön", true, 0);
+        explorerReturn.CheckedChanged += delegate
+        {
+            if (!explorerSyncing)
+                SaveSettingsQuietly();
+        };
+        actions.Controls.Add(explorerReturn);
         var modelRow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0) };
         var modelLabel = new Label { Text = "NPC model", AutoSize = false, Width = 82, Height = 30, TextAlign = ContentAlignment.MiddleLeft, Margin = new Padding(0, 3, 0, 0) };
         Num(explorerModel, 1, 999999, ExplorerSpots.DefaultModel, 0, 100);
@@ -514,7 +526,7 @@ sealed partial class MemorySelectV3Form
         modelRow.Controls.Add(explorerModel);
         modelRow.Controls.Add(Btn("Seçili NPC’yi kullan", UseSelectedExplorerNpc, 160, true, ButtonKind.Ghost));
         actions.Controls.Add(modelRow);
-        ConfigureCheck(explorerTalk, "NPC’ye tıkla ve konuşma seçeneğini seç", true, 0);
+        ConfigureCheck(explorerTalk, "NPC’ye tıkla ve konuşma seçeneğini seç (1 = konuş)", true, 0);
         explorerTalk.CheckedChanged += delegate
         {
             if (!explorerSyncing)
@@ -578,7 +590,9 @@ sealed partial class MemorySelectV3Form
     void ShowExplorerArea()
     {
         int index = explorerArea.SelectedIndex;
-        explorerMap.ShowArea(index <= 0 ? null : ExplorerSpots.All.Where(s => s.Area == ExplorerSpots.Areas[index - 1]));
+        if (index < 0)
+            return;
+        explorerMap.ShowArea(ExplorerSpots.All.Where(s => s.Area == ExplorerSpots.Areas[index]));
     }
 
     void StepExplorerArea(int direction)
@@ -608,10 +622,10 @@ sealed partial class MemorySelectV3Form
                     break;
                 }
             explorerMap.Selected = n;
-            int areaIndex = Array.IndexOf(ExplorerSpots.Areas, spot.Area) + 1;
-            if (explorerArea.SelectedIndex > 0 && explorerArea.SelectedIndex != areaIndex)
+            int areaIndex = Array.IndexOf(ExplorerSpots.Areas, spot.Area);
+            if (areaIndex >= 0 && explorerArea.SelectedIndex != areaIndex)
                 explorerArea.SelectedIndex = areaIndex;
-            if (explorerArea.SelectedIndex > 0)
+            if (areaIndex >= 0)
                 ShowExplorerArea();
             explorerMap.Invalidate();
         }
@@ -627,7 +641,10 @@ sealed partial class MemorySelectV3Form
         {
             SaveSettings();
         }
-        catch { }
+        catch (Exception e)
+        {
+            LogOnce("settings", "Ayarlar kaydedilemedi (sonra yeniden denenecek): " + e.Message);
+        }
     }
 
     void RefreshExplorerUi()
@@ -687,13 +704,17 @@ sealed partial class MemorySelectV3Form
         var npc = snapshot.Npcs.FirstOrDefault(n => n.Uid == snapshot.Selected);
         if (npc == null)
             throw new InvalidOperationException("Seçili hedef bir NPC olarak okunamadı.");
+        bool changed = explorerModel.Value != npc.Model;
         SetValue(explorerModel, npc.Model);
         SaveSettingsQuietly();
         Log("Explorer NPC modeli: " + npc.Model);
-        status.Text = "Explorer NPC modeli " + npc.Model + " olarak ayarlandı.";
+        status.Text = "Seçili NPC (UID " + npc.Uid + ") · model " + npc.Model + (changed ? " olarak ayarlandı." : " zaten ayarlı, değişmedi.");
     }
 
-    // Tries the chosen dialog option on the NPC selected in the client (to find the right option number by hand).
+    // Talks to the NPC selected in the client the way the run does: the selection is sent again, a moment later the talk request with the chosen
+    // option, and a second later the window is looked at, so the status says what really happened. Option 1 opens the NPC's dialog.
+    Timer talkTestTimer;
+
     void TalkSelectedNpc()
     {
         RequireReader();
@@ -703,13 +724,48 @@ sealed partial class MemorySelectV3Form
         var npc = snapshot.Npcs.FirstOrDefault(n => n.Uid == snapshot.Selected);
         if (npc == null)
             throw new InvalidOperationException("Seçili hedef bir NPC olarak okunamadı.");
+        if (talkTestTimer != null)
+            return;
         int option = (int)explorerOption.Value;
-        bool sent;
-        using (var s = new TargetSender(reader))
-            sent = s.Talk(npc.Uid, option);
-        Log("NPC ile konuşma · model " + npc.Model + " · seçenek " + option + " · " + (sent ? "gönderildi" : "reddedildi"));
-        status.Text = sent ? "Konuşma isteği gönderildi (seçenek " + option + "). Oyunda ne olduğuna bak; olmadıysa başka bir seçenek no dene." :
-            "İstemci konuşma isteğini reddetti.";
+        uint uid = npc.Uid;
+        if (!sender.Send(uid))
+            throw new InvalidOperationException("İstemci NPC seçimini reddetti.");
+        status.Text = "NPC seçildi, konuşma isteği gönderiliyor…";
+        int step = 0;
+        talkTestTimer = new Timer { Interval = 1200 };
+        talkTestTimer.Tick += delegate
+        {
+            try
+            {
+                if (step == 0)
+                {
+                    bool sent = sender.Talk(uid, option);
+                    Log("NPC ile konuşma · model " + npc.Model + " · seçenek " + option + " · " + (sent ? "gönderildi" : "reddedildi"));
+                    step = 1;
+                    if (sent)
+                        return;
+                    status.Text = "İstemci konuşma isteğini reddetti.";
+                }
+                else
+                {
+                    var window = ClientWindow();
+                    var shown = window == IntPtr.Zero || reader.IsMinimized() ? DialogState.Unknown : DialogProbe.Read(window);
+                    status.Text = shown == DialogState.Filled ? "Konuşma penceresi açıldı (seçenek " + option + ")." :
+                        shown == DialogState.Blank ? "Konuşma penceresi boş açıldı; tekrar dene." :
+                        shown == DialogState.None ? "Pencere açılmadı; seçenek " + option + " bu NPC için konuşmayı açmıyor olabilir (1’i dene)." :
+                        "İstek gönderildi; pencere okunamadı (oyun gizli olabilir).";
+                    Log("NPC ile konuşma · " + status.Text);
+                }
+            }
+            catch (Exception e)
+            {
+                status.Text = e.Message;
+            }
+            talkTestTimer.Stop();
+            talkTestTimer.Dispose();
+            talkTestTimer = null;
+        };
+        talkTestTimer.Start();
     }
 
     void StartExplorer(int from, bool single)
@@ -765,6 +821,7 @@ sealed partial class MemorySelectV3Form
                 var d = new DungeonLocation { Code = "EXP" + spot.N, Name = "Explorer " + spot.N, Area = ExpeditionRules.Area(point), Mode = "Serbest",
                     Region = point.Region, X = point.X, Y = point.Y, LocalX = point.LocalX, LocalY = point.LocalY, Height = height };
                 run.Spot = spot;
+                run.ReturnFirst = explorerReturn.Checked && run.LastArea != null && run.LastArea != spot.Area;
                 run.Phase = 0;
                 run.Tries = 0;
                 run.Uid = 0;
@@ -827,6 +884,7 @@ sealed partial class MemorySelectV3Form
     {
         var run = explorerRun;
         explorerMissing.Add(run.Spot.N);
+        run.LastArea = run.Spot.Area;
         Log("Explorer " + run.Spot.N + " bulunamadı · " + reason);
         ExplorerNext();
     }
@@ -837,6 +895,7 @@ sealed partial class MemorySelectV3Form
         if (!settings.ExplorerDone.Contains(run.Spot.N))
             settings.ExplorerDone.Add(run.Spot.N);
         explorerMissing.Remove(run.Spot.N);
+        run.LastArea = run.Spot.Area;
         SaveSettingsQuietly();
         Log("Explorer " + run.Spot.N + " bulundu · onaylandı");
         ExplorerNext();
@@ -927,7 +986,7 @@ sealed partial class MemorySelectV3Form
         {
             if (snapshot.Selected == run.Uid)
             {
-                if (now - run.Since < 800)
+                if (now - run.Since < 1200)
                     return true;
                 run.Handled.Add(run.Uid);
                 if (explorerTalk.Checked)
@@ -945,6 +1004,7 @@ sealed partial class MemorySelectV3Form
                     if (sent)
                     {
                         run.Phase = 4;
+                        run.Talks++;
                         run.Since = now;
                         Log("Explorer " + run.Spot.N + " · NPC ile konuşuldu · seçenek " + option);
                         RefreshExplorerUi();
@@ -978,9 +1038,34 @@ sealed partial class MemorySelectV3Form
         }
         if (run.Phase == 4)
         {
-            // Give the server a moment to answer the dialog choice before moving on.
-            if (now - run.Since >= 1500)
+            // The client sometimes opens the dialog window empty. Marking the spot found then would be wrong (nothing was said to the NPC), so the
+            // window is looked at: with text the spot is found; empty, the selection and the talk request are repeated; after the last try the
+            // spot counts as not found. When the picture cannot be read (game hidden or minimized) the old rule applies: found after a pause.
+            if (now - run.Since < 1300)
+                return true;
+            var window = ClientWindow();
+            var shown = window == IntPtr.Zero || reader.IsMinimized() ? DialogState.Unknown : DialogProbe.Read(window);
+            Log("Explorer " + run.Spot.N + " · konuşma penceresi: " + (shown == DialogState.Filled ? "yazılı" : shown == DialogState.Blank ? "boş" :
+                shown == DialogState.None ? "açılmadı" : "okunamadı") + (shown == DialogState.Unknown ? "" : " (" + DialogProbe.LastLight + " satır)"));
+            if (shown == DialogState.Filled || shown == DialogState.Unknown)
+            {
                 ExplorerDoneNow();
+                return true;
+            }
+            if (run.Talks >= ExplorerSpots.TalkTries)
+            {
+                ExplorerMissingNow("konuşma penceresi " + run.Talks + " denemede de boş kaldı");
+                return true;
+            }
+            Log("Explorer " + run.Spot.N + " · NPC'ye yeniden tıklanıyor (" + (run.Talks + 1) + "/" + ExplorerSpots.TalkTries + ")");
+            if (!sender.Send(run.Uid))
+            {
+                ExplorerMissingNow("NPC seçimi reddedildi");
+                return true;
+            }
+            run.Phase = 2;
+            run.Tries = 1;
+            run.Since = now;
             return true;
         }
         // Phase 3: walk the ring points, one after the other, until the NPC shows up.
@@ -994,6 +1079,10 @@ sealed partial class MemorySelectV3Form
         try
         {
             clear = sender.NavigationProbe(player, point);
+        }
+        catch (RemoteBackoffException)
+        {
+            throw;
         }
         catch (System.IO.IOException)
         {

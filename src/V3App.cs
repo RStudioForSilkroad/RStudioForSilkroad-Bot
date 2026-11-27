@@ -68,6 +68,11 @@ sealed partial class MemorySelectV3Form : Form
     [DllImport("user32.dll")]
     static extern bool IsWindowVisible(IntPtr window);
 
+    [DllImport("user32.dll")]
+    static extern bool IsHungAppWindow(IntPtr window);
+
+    long hungSince;
+
     static IntPtr FindClientWindow(Process process)
     {
         IntPtr mainWindow = process.MainWindowHandle;
@@ -103,7 +108,10 @@ sealed partial class MemorySelectV3Form : Form
             IntPtr window = FindClientWindow(process);
             if (window == IntPtr.Zero)
                 throw new InvalidOperationException("Seçili oyun penceresi bulunamadı.");
-            if (IsWindowVisible(window) != show && !ShowWindowAsync(window, show ? 5 : 0))
+            // Showing is a wake-up too (minimize, restore, front): a window that is only shown again keeps its drawing stopped.
+            if (show)
+                WakeClient(window);
+            else if (IsWindowVisible(window) && !ShowWindowAsync(window, 0))
                 throw new InvalidOperationException("Windows pencere isteğini kabul etmedi.");
             if (!show && reader != null && reader.Process.Id == selected.Id)
                 ReleaseKey();
@@ -136,6 +144,12 @@ sealed partial class MemorySelectV3Form : Form
 
     void Connect()
     {
+        Connect(false);
+    }
+
+    // keepArea: the hunting area and the chosen monsters stay (the connection to a game that was opened again).
+    void Connect(bool keepArea)
+    {
         if (active)
             return;
         characterStats.Reset();
@@ -147,16 +161,21 @@ sealed partial class MemorySelectV3Form : Form
             reader.Dispose();
             reader = null;
         }
-        center = null;
-        area.Text = "Bölge set edilmedi. Mevcut X/Y → Bölgeyi set et.";
+        if (!keepArea)
+        {
+            center = null;
+            area.Text = "Bölge set edilmedi. Mevcut X/Y → Bölgeyi set et.";
+        }
         var p = processes.SelectedItem as ProcessItem;
         if (p == null)
             throw new InvalidOperationException("Bir oyun işlemi seç.");
         ClaimClient(p.Id);
         reader = new GameReader(p.Id, names);
+        areaWatch.Reset();
         snapshot = reader.Capture();
         FillBoxes(snapshot.Player);
         UpdateDisplay();
+        WarnBackgroundRender();
         status.Text = "Bağlı. Yaratığı seç, ardından bölgeyi set et.";
     }
 
@@ -230,8 +249,6 @@ sealed partial class MemorySelectV3Form : Form
         if (transaction.Pending)
             throw new InvalidOperationException("Bekleyen eşya işlemi var.");
         operation = mode;
-        if (recovery.Deaths >= RunDeathLimit)
-            throw new InvalidOperationException("Ölüm sınırı dolu. İnceledikten sonra ölüm sayacını sıfırla.");
         snapshot = reader.Capture();
         if (!snapshot.PlayerAlive)
             throw new InvalidOperationException("Karakter canlı değil.");
@@ -249,8 +266,13 @@ sealed partial class MemorySelectV3Form : Form
                 throw new InvalidOperationException(problem);
             rotation.Load(slots, SkillOptionsFromUi());
             list.AddRange(rotation.Keys());
+            if (rotation.KeylessLines > 0)
+                Log(rotation.KeylessLines + " satırın tuşu yok; atılmaz (Skill sayfasında her satıra hotbar tuşunu yaz).");
+            if (rotation.InertPartyLines > 0)
+                Log(rotation.InertPartyLines + " Parti buff satırı kullanılmaz (paketle skill gönderilmiyor).");
             if (mode != OperationMode.Travel && RunSendKeys && !rotation.HasAttack && !(rotation.Options.BuffOnly && mode == OperationMode.Hunt))
-                throw new InvalidOperationException("Skill listesinde en az bir açık Saldırı skill'i olmalı.");
+                throw new InvalidOperationException(rotation.KeylessLines > 0 ? "Açık Saldırı satırlarının tuşu yok: Skill sayfasında hotbar tuşunu yaz." :
+                    "Skill listesinde en az bir açık Saldırı skill'i olmalı.");
         }
         else
         {
@@ -267,7 +289,7 @@ sealed partial class MemorySelectV3Form : Form
             throw new InvalidOperationException("Av / Ayarlar içindeki Hedef doğrulanınca tuşlara bas seçeneğini aç.");
         if (HotkeyPolicy.Conflicts(shortcutKey, shortcutMods, list, RunZerk))
             throw new InvalidOperationException("Başlat/durdur kısayolu saldırı veya Berserk tuşuyla aynı. Kısayolu değiştir.");
-        SaveSettings();
+        SaveSettingsQuietly();
         routeWalker.Reset();
         routeTarget = 0;
         approachWatch.Reset();
@@ -275,6 +297,7 @@ sealed partial class MemorySelectV3Form : Form
         nextVisibility = 0;
         parsedKeys = list.ToArray();
         sender = new TargetSender(reader);
+        clientLogWatch.Begin(reader.GameDirectory, clock.ElapsedMilliseconds);
         active = true;
         // While a job runs the window looks at the game four times a second faster: a quicker reaction, and the route search (a few steps per
         // look) finishes sooner.
@@ -297,6 +320,15 @@ sealed partial class MemorySelectV3Form : Form
 
     void Stop(string text)
     {
+        // the user's own Stop or Connect ends a plan to resume; the plan's own connecting and starting do not
+        if (!resumeBusy && resume.Armed)
+        {
+            resume.Cancel("elle durduruldu");
+            Log("Otomatik devam iptal edildi (" + text + ")");
+        }
+        caravanFrom = caravanTo = null;
+        if (lotteryRunning)
+            LotteryHalt(text);
         if (queueRunning && !queueAdvancing)
         {
             queueRunning = false;
@@ -329,7 +361,10 @@ sealed partial class MemorySelectV3Form : Form
                     if (CommandsAllowed())
                         sender.Move(snapshot.Player.Copy());
                 }
-                catch { }
+                catch (Exception e)
+                {
+                    LogOnce("stop-move", "Durdururken son hareket gönderilemedi · " + e.Message);
+                }
             }
             sender.Dispose();
             sender = null;
@@ -356,7 +391,7 @@ sealed partial class MemorySelectV3Form : Form
     {
         if (snapshot == null)
             return;
-        deathsLabel.Text = "Ölüm sayısı: " + recovery.Deaths + " / " + deathLimit.Value + " · " + recovery.Phase;
+        recoveryLabel.Text = "Kurtarma: " + recovery.Phase;
         int count = center == null ? 0 : V2Rules.InRange(snapshot, center, (double)radius.Value).Count;
         position.Text = string.Format("Karakter X {0:F1}  Y {1:F1} | Yakındaki mob {2} | Seçili UID {3}", snapshot.Player.X,
             snapshot.Player.Y, snapshot.Monsters.Count, snapshot.Selected);
@@ -381,14 +416,16 @@ sealed partial class MemorySelectV3Form : Form
 
     void Skip(uint uid, string reason, long now)
     {
-        banned[uid] = now + 60000;
+        // In a dungeon a monster that did not answer stays next to the character: try it again soon instead of walking away from it for a minute.
+        int seconds = operation == OperationMode.Grim ? 8 : 60;
+        banned[uid] = now + seconds * 1000L;
         wanted = 0;
         attempts = 0;
         lastRequest = 0;
         nextRequest = 0;
         watch.Reset();
         ReleaseKey();
-        lastEvent = reason + " · UID " + uid + " 60 sn atlandı.";
+        lastEvent = reason + " · UID " + uid + " " + seconds + " sn atlandı.";
         status.Text = lastEvent;
         Log(lastEvent);
     }
@@ -435,7 +472,7 @@ sealed partial class MemorySelectV3Form : Form
     // select and transfer calls, so they may also run while the game is behind other windows, unless it is minimised.
     bool CommandsAllowed()
     {
-        if (reader == null)
+        if (reader == null || !GameStateReady())
             return false;
         if (reader.IsForeground())
             return true;
@@ -443,36 +480,8 @@ sealed partial class MemorySelectV3Form : Form
             return false;
         if (operation == OperationMode.Travel)
             return backgroundWalk.Checked;
-        // Lines that use a skill by its id send no key at all, so they work with the game behind other windows.
-        return backgroundKeys.Checked || (active && useRotation && rotation.HasIdOnly);
-    }
-
-    // Presses the key of a skill line or, for a line with a Skill ID and no key, tells the client to use that skill on the target
-    // (attack lines) or on the character itself (buffs, heals, mana).
-    bool PressSkill(ushort key, uint target)
-    {
-        if (key != SkillRotation.IdOnly)
-            return Press(key);
-        int id = rotation.LastSkillId;
-        if (sender == null || id <= 0 || !CommandsAllowed())
-            return false;
-        try
-        {
-            if (sender.Cast((uint)id, rotation.LastKind == SkillRotation.Attack_ ? target : 0))
-                return true;
-            Log("Skill " + SkillLabel(id) + " gönderilemedi (istemci reddetti).");
-        }
-        catch (IOException e)
-        {
-            Log("Skill " + SkillLabel(id) + " gönderilemedi · " + e.Message);
-        }
-        return false;
-    }
-
-    static string SkillLabel(int id)
-    {
-        string name = SkillCatalog.NameOf((uint)id);
-        return name.Length == 0 ? id.ToString() : name + " (" + id + ")";
+        // Skills are cast only by pressing their hotbar key; the game's window has to be in front unless background keys are switched on.
+        return backgroundKeys.Checked;
     }
 
     bool WalkChecked(Position destination, long now, Func<Position, bool> allowed, string label, bool skipOnFailure)
@@ -489,8 +498,9 @@ sealed partial class MemorySelectV3Form : Form
             {
                 return activeSender.NavigationProbeMany(pairs);
             }
-            catch (IOException)
+            catch (IOException e)
             {
+                LogOnce("probe-" + e.GetType().Name, "Navigasyon sorgusu başarısız · " + e.Message);
                 return null;
             }
             catch (InvalidOperationException)
@@ -559,10 +569,27 @@ sealed partial class MemorySelectV3Form : Form
             returning = false;
     }
 
+    long nextSendSummary;
+
+    // Once a minute while a job runs: what the bot sent to the game in that minute (kept in the event log).
+    void LogSendSummary(long now)
+    {
+        if (now < nextSendSummary)
+            return;
+        nextSendSummary = now + 60000;
+        int total;
+        double seconds;
+        string text = SendStats.TakeSummary(out total, out seconds);
+        if (total > 0)
+            Log("Gönderilen komutlar (" + (int)seconds + " sn): " + text + " · " + (total / seconds).ToString("0.0") + " /sn");
+    }
+
     void Tick()
     {
         long now = clock.ElapsedMilliseconds, elapsed = lastTick == 0 ? 0 : now - lastTick;
         lastTick = now;
+        LogSendSummary(now);
+        ResumeTick(now);
         if (reader == null)
         {
             if (statPanel.Sample != null)
@@ -572,6 +599,7 @@ sealed partial class MemorySelectV3Form : Form
             }
             return;
         }
+        bool tickFailed = false;
         try
         {
             try
@@ -584,7 +612,7 @@ sealed partial class MemorySelectV3Form : Form
                 reader.Process.Refresh();
                 if (reader.Process.HasExited)
                 {
-                    Stop("Oyun kapandı.");
+                    GameExited();
                     return;
                 }
                 if (readErrorSince == 0)
@@ -616,28 +644,53 @@ sealed partial class MemorySelectV3Form : Form
                     movementPoint = snapshot.Player.Copy();
                 }
             }
+            if (readErrorSince != 0)
+                areaWatch.Loaded(now);
             readErrorSince = 0;
+            areaWatch.Observe(snapshot.Player, now);
+            // A game whose window does not answer Windows (its main thread is stuck) cannot take commands: waiting costs nothing, while selecting and
+            // moving into a frozen game only bans every monster (each "no answer" skips a target for 60 s) and piles up commands.
+            if (active)
+            {
+                var gameWindow = ClientWindow();
+                if (gameWindow != IntPtr.Zero && IsHungAppWindow(gameWindow))
+                {
+                    if (hungSince == 0)
+                    {
+                        hungSince = now;
+                        Log("Oyun penceresi yanıt vermiyor (donmuş); yanıt verene kadar komut gönderilmeyecek.");
+                    }
+                    ReleaseKey();
+                    watch.Pause(elapsed);
+                    approachWatch.Pause(elapsed);
+                    travel.Pause(elapsed);
+                    routeWalker.Pause(elapsed);
+                    status.Text = "Oyun yanıt vermiyor · " + (now - hungSince) / 1000 + " sn · komut gönderilmiyor, bekleniyor.";
+                    return;
+                }
+                if (hungSince != 0)
+                {
+                    Log("Oyun yeniden yanıt veriyor (" + (now - hungSince) / 1000 + " sn sürdü).");
+                    hungSince = 0;
+                    banned.Clear();
+                    wanted = 0;
+                }
+            }
             CheckUniques();
             transaction.Observe(snapshot, now);
             UpdateStatPanel(now);
             maintenance.Text = transaction.Message;
             UpdateDisplay();
-            dungeonRadar.Snapshot = snapshot;
-            dungeonRadar.Run = grim;
-            dungeonRadar.Invalidate();
             RecordPath();
             if (explorerMap.Visible)
             {
                 explorerMap.Player = snapshot.Player;
                 explorerMap.Invalidate();
             }
-            if (worldMap.Visible)
-            {
-                worldMap.Player = snapshot.Player;
-                worldMap.Invalidate();
-                RefreshRoutes();
-            }
             SkillTick(now);
+            InventoryTick(now);
+            NotificationsTick();
+            NanzhangTick(now);
             UpdateCaravanAnimalText();
             if (grim.Running && grim.Location != null && ExpeditionRules.Cleared(completionNotice.Message, grim.Location.Code))
                 snapshot.Grim.Text = completionNotice.Message;
@@ -650,18 +703,33 @@ sealed partial class MemorySelectV3Form : Form
             }
             if (!active)
                 return;
+            string clientProblem = ClientLogProblem(now);
+            if (clientProblem != null)
+            {
+                // The game was cut off or crashed: the job ends, the sender and its thread handles are dropped, and a plan to resume (when
+                // switched on) waits for the game's new process; a new sender is made only after the reader has checked that process again.
+                var clientJob = JobBeforeExit();
+                int lostPid = reader.Process.Id;
+                Stop(clientProblem);
+                ArmResume(clientJob, lostPid);
+                return;
+            }
+            if (sender != null && sender.FailureLimitReached)
+            {
+                Stop("Oyun çağrıları art arda " + TargetSender.RemoteFailureLimit + " kez başarısız oldu; iş durduruldu.");
+                return;
+            }
             bool foreground = CommandsAllowed();
-            int before = recovery.Deaths;
-            RecoveryAction recoveryAction = recovery.Observe(snapshot, now, foreground, RunRecovery, RunWait,
-                RunDeathLimit);
-            if (before != recovery.Deaths)
+            FreezeWatch(now);
+            RecoveryAction recoveryAction = recovery.Observe(snapshot, now, foreground, RunRecovery, RunWait);
+            if (recovery.TakeDeath())
             {
                 routeWalker.Reset();
                 ReleaseKey();
                 wanted = 0;
                 watch.Reset();
-                SaveSettings();
-                Log("Ölüm " + recovery.Deaths + " · X " + snapshot.Player.X + " Y " + snapshot.Player.Y);
+                SaveSettingsQuietly();
+                Log("Karakter öldü · X " + snapshot.Player.X + " Y " + snapshot.Player.Y);
             }
             if (recoveryAction == RecoveryAction.Stop)
             {
@@ -694,6 +762,7 @@ sealed partial class MemorySelectV3Form : Form
                     Stop("Reverse isteği reddedildi; tekrar eşya kullanılmadı.");
                     return;
                 }
+                reverseLockUntil = clock.ElapsedMilliseconds + ReverseRules.LockMs;
                 Log("Reverse ölüm noktası: eşya " + reverse.Model);
             }
             if (recoveryAction == RecoveryAction.Resume)
@@ -730,7 +799,8 @@ sealed partial class MemorySelectV3Form : Form
                 routeWalker.Pause(elapsed);
                 if (returning)
                     returnProgressAt += elapsed;
-                status.Text = reader.IsMinimized() ? "Bekliyor: oyun penceresi simge durumunda; büyüt ya da arka plana al." :
+                status.Text = !GameStateReady() ? "Bekliyor: oyun alanı yükleniyor ya da yanıt vermiyor; komut gönderilmiyor." :
+                    reader.IsMinimized() ? "Bekliyor: oyun penceresi simge durumunda; büyüt ya da arka plana al." :
                     "Bekliyor: oyun önde değil (Skiller sayfasında arka plan tuşları kapalı).";
                 return;
             }
@@ -741,6 +811,7 @@ sealed partial class MemorySelectV3Form : Form
             }
             if (snapshot.Berserk >= 0 && snapshot.Berserk < 5)
                 zerkLatched = false;
+            PotionTick(now);
             if (ProcessMaintenance(now))
             {
                 approachWatch.Pause(elapsed);
@@ -750,6 +821,12 @@ sealed partial class MemorySelectV3Form : Form
             RecordExit();
             if (operation == OperationMode.Grim && QueueAfterComplete(now))
                 return;
+            // A single run that left the finished dungeon is over (the queue goes on with its next entry instead).
+            if (operation == OperationMode.Grim && !queueRunning && grim.Complete && grim.Location != null && !grim.IsRegion(snapshot.Player))
+            {
+                Stop("Grim tamamlandı · dungeondan çıkıldı.");
+                return;
+            }
             if (operation == OperationMode.Travel)
             {
                 ExpeditionTick(now);
@@ -780,6 +857,17 @@ sealed partial class MemorySelectV3Form : Form
                 }
                 target = MultiTarget.Choose(snapshot, selectedMobs, center, (double)radius.Value, banned, now, wanted);
             }
+            if (target != null)
+            {
+                completeIdleSince = 0;
+                if (grim.Complete && exitHolding && queueExitPhase != 2)
+                {
+                    exitHolding = false;
+                    queueExitPhase = 0;
+                    queueExitStep = 0;
+                    queueExitSince = 0;
+                }
+            }
             uint nextWanted = target == null ? 0 : target.Uid;
             if (wanted != nextWanted)
             {
@@ -794,7 +882,19 @@ sealed partial class MemorySelectV3Form : Form
                 if (operation != OperationMode.Grim)
                     ReturnHome(now);
                 else if (grim.Complete)
+                {
+                    // The treasure box appears a moment after the last monster dies: wait for it before walking to the exit.
+                    if (completeIdleSince == 0)
+                        completeIdleSince = now;
+                    if (!exitHolding && now - completeIdleSince < BoxWaitMs)
+                    {
+                        ReleaseKey();
+                        wanted = 0;
+                        status.Text = "Grim tamamlandı · son kutu bekleniyor (" + ((BoxWaitMs - (now - completeIdleSince)) / 1000 + 1) + " sn).";
+                        return;
+                    }
                     CompletionExit(now);
+                }
                 else
                     GrimExplore(now);
                 return;
@@ -898,7 +998,7 @@ sealed partial class MemorySelectV3Form : Form
             if (RunSendKeys && useRotation && now >= nextKey && heldScan == 0)
             {
                 ushort attackKey = rotation.NextAttack(now, V2Rules.ClassName(target), MonstersNear());
-                if (attackKey != 0 && PressSkill(attackKey, target.Uid))
+                if (attackKey != 0 && Press(attackKey))
                     nextKey = now + RunDelay;
             }
             else if (RunSendKeys && parsedKeys.Length > 0 && now >= nextKey && heldScan == 0)
@@ -910,11 +1010,44 @@ sealed partial class MemorySelectV3Form : Form
                 }
             }
         }
+        catch (GameGoneException)
+        {
+            // the process vanished under a remote call: one line, no failure counted, the job stops like any other game exit
+            ReleaseKey();
+            Log("Oyun kapandı (uzak çağrı sırasında süreç kayboldu)");
+            if (reader != null)
+                GameExited();
+        }
         catch (Exception e)
         {
+            tickFailed = true;
+            if (e is IOException && RetryAfterIoError(e, now))
+                return;
             Stop(e.Message);
             Log(e.ToString());
         }
+        finally
+        {
+            tickFailures.EndTick(tickFailed);
+        }
+    }
+
+    void GameExited()
+    {
+        // Said once: the reader is let go, so the next looks at the game stop here (it used to repeat the line every second)
+        var job = JobBeforeExit();
+        int closedPid = reader.Process.Id;
+        RemoteJournal.Default.Marker(DateTime.Now, closedPid, "game exited");
+        // a plan to resume that was armed when the log showed a disconnect or crash must survive the game's exit
+        bool wasBusy = resumeBusy;
+        resumeBusy = resumeBusy || resume.Armed;
+        Stop("Oyun kapandı.");
+        resumeBusy = wasBusy;
+        reader.Dispose();
+        reader = null;
+        status.Text = "Oyun kapandı · yeniden açılınca Yenile, sonra Bağlan / Oku.";
+        UpdateTitle();
+        ArmResume(job, closedPid);
     }
 
     void HoldGrim(string message)
@@ -934,6 +1067,13 @@ sealed partial class MemorySelectV3Form : Form
     {
         ReleaseKey();
         routeTarget = 0;
+        // A monster right beside the character (one that was skipped for a moment) is not walked away from: wait for it to be tried again.
+        if (!grim.Complete && snapshot.Monsters.Any(m => m.Alive && m.Health != 0 && grim.IsRegion(m.Position) && !GrimRooms.Optional(m) &&
+            m.Position.Distance(snapshot.Player) <= 14))
+        {
+            HoldGrim("Yanında canavar var · yürümeden yeniden denenecek");
+            return;
+        }
         if (!grimHolding)
         {
             if (CommandsAllowed())
@@ -1027,7 +1167,7 @@ sealed partial class MemorySelectV3Form : Form
         {
             try
             {
-                grim.Route = floor.RouteToUncovered(snapshot.Player, sender.NavigationProbe);
+                grim.Route = floor.RouteToUncovered(snapshot.Player, sender.NavigationProbe, sender.NavigationProbeMany);
             }
             catch (InvalidOperationException e)
             {
@@ -1068,7 +1208,10 @@ sealed partial class MemorySelectV3Form : Form
             if (CommandsAllowed() && sender != null)
                 sender.Move(snapshot.Player.Copy());
         }
-        catch (IOException) { }
+        catch (IOException e)
+        {
+            LogOnce("grim-move", "Grim: durma hareketi gönderilemedi · " + e.Message);
+        }
         var floor = grim.Floor;
         if (floor != null && graphPath == null && goal != null && grimFailures <= 4)
         {
@@ -1118,6 +1261,7 @@ sealed partial class MemorySelectV3Form : Form
             return true;
         }
         ushort scan = (ushort)Native.MapVirtualKeyEx(key, 0, Native.GetKeyboardLayout(thread));
+        SendStats.Add("tuş");
         if (scan == 0 || !SendScan(scan, false))
         {
             Stop("Tuş gönderimi reddedildi.");
@@ -1163,6 +1307,8 @@ sealed partial class MemorySelectV3Form : Form
             startupFrozen = false;
             Ui.Thaw(this);
             PerformLayout();
+            if (tabs.SelectedTab != null)
+                Ui.Settle(tabs.SelectedTab);
         }
         base.OnShown(e);
         RegisterShortcut();
@@ -1293,6 +1439,7 @@ sealed partial class MemorySelectV3Form : Form
                 }
                 return;
             }
+            StabilityLog.InstallExceptionHooks();
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
             string slot = Environment.GetEnvironmentVariable("SRSTUDIO_ACCOUNT");

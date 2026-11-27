@@ -18,9 +18,23 @@ function Get-ResourceMap {
         'data/learned-defaults.txt'                   = 'learned-defaults.txt'
         'data/transport-network.json'                 = 'transport-network.json'
         'data/return-scrolls.json'                    = 'return-scrolls.json'
+        'data/gate-npcs.json'                         = 'gate-npcs.json'
+        'data/jangan-pass-road.json'                  = 'jangan-pass-road.json'
+        'data/caravan-scripts.json'                   = 'caravan-scripts.json'
+        'data/skill-weapons.json'                     = 'skill-weapons.json'
+        'data/weapon-types.json'                      = 'weapon-types.json'
+        'data/skill-timing.json'                      = 'skill-timing.json'
+        'data/reverse-points.json'                    = 'reverse-points.json'
         'data/explorer-spots.json'                    = 'explorer-spots.json'
         'data/Nanzhang/Nanzhang-NPC-Haritasi.jpg'     = 'nanzhang-map.jpg'
         'data/Nanzhang/Nanzhang-Harita-Verisi.json'   = 'nanzhang-data.json'
+        'data/nanzhang-world.json'                    = 'nanzhang-world.json'
+    }
+    foreach ($pic in Get-ChildItem -LiteralPath 'assets/launcher' -Filter '*.jpg') {
+        $map["assets/launcher/$($pic.Name)"] = "Launcher.$($pic.Name)"
+    }
+    foreach ($pic in Get-ChildItem -LiteralPath 'assets/uniques' -Filter '*.png') {
+        $map["assets/uniques/$($pic.Name)"] = "Unique.$($pic.Name)"
     }
     foreach ($n in 1..18) {
         $code = 'D{0:D2}' -f $n
@@ -45,7 +59,7 @@ function Invoke-Csc {
 
     # CS0649: DTO fields that are filled by JavaScriptSerializer, never assigned in code.
     $compilerArgs = @(
-        '/nologo', "/target:$Target", '/platform:x86', '/optimize+', '/utf8output', '/nowarn:649',
+        '/nologo', "/target:$Target", '/platform:x86', '/optimize+', '/debug:pdbonly', '/utf8output', '/nowarn:649',
         "/out:$Out", "/main:$Main",
         '/reference:System.Windows.Forms.dll', '/reference:System.Drawing.dll',
         '/reference:System.Core.dll', '/reference:System.Web.Extensions.dll',

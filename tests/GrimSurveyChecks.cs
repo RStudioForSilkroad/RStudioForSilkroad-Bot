@@ -34,7 +34,7 @@ static class GrimSurveyChecks
             check(edgesValid && mapped.FullyCovered && count > 1, trial.Code +
                 " survey reaches every captured area through connected corridors");
         }
-        check(V3Data.Dungeons.Where(x => x.Mode != "Solo Trial").All(x => FloorNavigation.LoadCaptured(x) == null),
+        check(V3Data.Dungeons.Where(x => !x.IsSolo).All(x => FloorNavigation.LoadCaptured(x) == null),
             "Other modes do not silently inherit Trial-only captures");
         var d = V3Data.Dungeons.First(x => x.Code == "D13" && x.Mode == "Solo Trial");
         var floor = FloorNavigation.LoadCaptured(d);

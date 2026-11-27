@@ -61,6 +61,99 @@ static class ExpeditionRules
         return previous != null && current.Distance(previous) > 96;
     }
 
+    // Where the gate's NPC stands, from the game's building table (model -> world position); null for a gate without one. The NPC is often tens of
+    // units from the point where a traveller arrives (Hotan 34, Constantinople 31, Samarkand 67, the last one on a platform 70 units higher).
+    sealed class GateNpcPlace
+    {
+        public int Model;
+        public double X, Y, Height;
+    }
+
+    static readonly Dictionary<int, GateNpcPlace> gateNpcPlaces = V3Data.Load<List<GateNpcPlace>>("gate-npcs.json").GroupBy(p => p.Model)
+        .ToDictionary(g => g.Key, g => g.First());
+
+    internal static Position NpcPlace(TransitGate gate)
+    {
+        GateNpcPlace place;
+        return gate != null && gateNpcPlaces.TryGetValue(gate.Model, out place) ? V2Rules.Center(place.X, place.Y, (float)place.Height) : null;
+    }
+
+    // The client keeps only the NPCs within about 45 units of the character (measured: seen at 43, not at 48). Selecting an NPC and taking its
+    // teleport works from that far (tried live at 34 and 42 units), so the character only has to come within this range.
+    internal const double NpcSight = 45;
+
+    // A point on the line from the NPC to the character, `distance` units from the NPC (the character's own place when it is closer already).
+    internal static Position StandNear(Position from, Position npcPlace, double distance)
+    {
+        double dx = from.X - npcPlace.X, dy = from.Y - npcPlace.Y, length = Math.Sqrt(dx * dx + dy * dy);
+        if (length <= distance || length < 0.001)
+            return from;
+        return V2Rules.Center(npcPlace.X + dx / length * distance, npcPlace.Y + dy / length * distance, from.Height);
+    }
+
+    internal enum GateStep
+    {
+        WalkToGate,
+        WalkToNpc,
+        Use,
+        Fail
+    }
+
+    // The order of a gate hop: to the gate's own point, then towards the NPC's place until the NPC is loaded, then use it. How far from the NPC the
+    // client loads it is not fixed (seen at 43 units in Samarkand, at 29 but not at 33 in Donwhang), so the stand point comes closer in steps
+    // (33, 25, 17, 9 units) each time the character stands there for a moment and the NPC is still not there. Once the gate point has been reached
+    // the character never goes back to it (walking back and forth between the two was a real bug); it gives up after 60 seconds.
+    internal sealed class GateSearch
+    {
+        internal const double FirstStand = 33, StandStep = 8, LastStand = 9;
+        internal bool Arrived;
+        internal long Since, StandSince;
+        internal double Stand = FirstStand;
+
+        internal void Reset()
+        {
+            Arrived = false;
+            Since = 0;
+            StandSince = 0;
+            Stand = FirstStand;
+        }
+
+        internal GateStep Next(bool npcLoaded, bool atGatePoint, bool placeKnown, bool atStandPoint, long now)
+        {
+            if (npcLoaded)
+                return GateStep.Use;
+            if (!Arrived)
+            {
+                if (!atGatePoint)
+                    return GateStep.WalkToGate;
+                Arrived = true;
+                Since = now;
+            }
+            if (atStandPoint)
+            {
+                if (StandSince == 0)
+                    StandSince = now;
+                else if (now - StandSince >= 1500 && Stand > LastStand)
+                {
+                    Stand = Math.Max(LastStand, Stand - StandStep);
+                    StandSince = 0;
+                }
+            }
+            else
+                StandSince = 0;
+            return placeKnown && now - Since < 60000 ? GateStep.WalkToNpc : GateStep.Fail;
+        }
+    }
+
+    // Where to stand to use a gate: the gate's own point (where the game puts a character that arrives), unless the live NPC is right there (then
+    // the NPC's spot). Some gates have their NPC far off and out of reach (Hotan's stands on a platform 34 units away, up a flight of steps); the
+    // client accepts the selection and the teleport from the gate's point all the same (tried live).
+    internal static Position GateApproach(TransitGate gate, WorldNpc npc)
+    {
+        var point = gate.Point();
+        return npc != null && npc.Position.Distance(point) <= 12 ? npc.Position : point;
+    }
+
     internal static bool ApproachReached(Position current, Position goal)
     {
         return current.Distance(goal) <= ArrivalDistance;
@@ -137,7 +230,7 @@ static class ExpeditionRules
 sealed partial class MemorySelectV3Form
 {
     readonly CompletionNotice completionNotice = new CompletionNotice();
-    readonly CheckBox autoEnterGrim = new CheckBox();
+    readonly CheckBox autoEnterGrim = new CheckBox(), exitAfterGrim = new CheckBox();
     readonly Queue<TransitStep> transit = new Queue<TransitStep>();
     int expeditionPhase;
     long expeditionSince;
@@ -146,11 +239,21 @@ sealed partial class MemorySelectV3Form
     bool selectedPortal;
     Position returnOrigin, knownExit, lastExpeditionPosition;
     bool exitHolding;
+    // When the finished dungeon had no monster left to fight (for the wait for the treasure box), and how long the box is waited for.
+    long completeIdleSince;
+    const long BoxWaitMs = 6000;
+    readonly ExpeditionRules.GateSearch gateSearch = new ExpeditionRules.GateSearch();
 
     void StartGrimRequested()
     {
         RequireReader();
         snapshot = reader.Capture();
+        // With a queue and the character outside, the start button runs the queue: each dungeon, leave it, the next one.
+        if (queue.Count > 0 && !queueRunning && !V3Data.IsCrypt(snapshot.Player))
+        {
+            StartQueue();
+            return;
+        }
         var d = SelectedDungeon();
         if (d == null)
             throw new InvalidOperationException("Dungeon seç.");
@@ -202,14 +305,26 @@ sealed partial class MemorySelectV3Form
         pendingArrival = null;
         portalUid = 0;
         selectedPortal = false;
+        gateSearch.Reset();
         knownExit = null;
         exitHolding = false;
-        if (!free && autoEnterGrim.Checked && d.Mode != "Solo Trial")
+        queueExitPhase = 0;
+        queueExitStep = 0;
+        queueExitTries = 0;
+        queueExitSince = 0;
+        completeIdleSince = 0;
+        if (!free && autoEnterGrim.Checked && !d.IsSolo)
             throw new InvalidOperationException("Otomatik giriş için Solo Trial kaydı seç.");
         excludedRoadCells.Clear();
         useImportedRoad = true;
-        if (!caravanWalk && explorerRun == null && ((returnBeforeTravel.Checked && ExpeditionRules.Area(snapshot.Player) != ExpeditionRules.Area(d.Entrance())) ||
-            WalkingTooFar(d)))
+        // First know where the character is; then choose the way: a jump to the Reverse place nearest to the dungeon, a Return Scroll, or a walk.
+        // In the dungeon's own town no scroll is used at all.
+        Log("Konum: " + WhereAmI(snapshot.Player));
+        reverseTarget = ChooseReversePoint(d);
+        if (reverseTarget != null)
+            expeditionPhase = 6;
+        else if (!caravanWalk && !SameTown(snapshot.Player, d.Entrance()) && ExpeditionRules.Area(snapshot.Player) != ExpeditionRules.Area(d.Entrance()) &&
+            (explorerRun != null ? explorerRun.ReturnFirst : returnBeforeTravel.Checked || WalkingTooFar(d)))
             expeditionPhase = 1;
         else
             BuildRoadRoute(d);
@@ -259,7 +374,30 @@ sealed partial class MemorySelectV3Form
         RoadMesh.AllowFerries = caravanWalk;
         try
         {
-            return PlanLeg(start, goal, skip);
+            var plan = PlanLeg(start, goal, skip);
+            if (!RoadMesh.LastLiveApproach || caravanWalk)
+                return plan;
+            Log("Harita portala bağlı değil; son kısım canlı yürünecek · son bağlı nokta X " + (int)RoadMesh.LastReach.X + " Y " +
+                (int)RoadMesh.LastReach.Y + " · boşluk " + (int)RoadMesh.LastReachGap);
+            // Remembered blocks can close the only way (a stair cell) without an error: the plan then ends in a dead-end live approach.
+            if (settings.BlockedRoadCells.Count == 0)
+                return plan;
+            List<TransitStep> open = null;
+            try
+            {
+                open = PlanLeg(start, goal, excludedRoadCells);
+            }
+            catch (InvalidOperationException) { }
+            if (open == null || RoadMesh.LastLiveApproach)
+                return plan;
+            Log("Öğrenilen engeller haritalı rotayı kapattı; liste sıfırlandı.");
+            settings.BlockedRoadCells.Clear();
+            try
+            {
+                settings.Save();
+            }
+            catch { }
+            return open;
         }
         catch (InvalidOperationException)
         {
@@ -341,7 +479,10 @@ sealed partial class MemorySelectV3Form
         grim.Route.Clear();
         if (exitHolding)
         {
-            status.Text = "Grim tamamlandı · Dungeon Exit önünde bekliyor. Otomatik çıkış kapalı.";
+            // The queue leaves the dungeon through QueueAfterComplete; a single run does it here when the option is on.
+            if (exitAfterGrim.Checked && !queueRunning)
+                return QueueExit(now, "Grim tamamlandı · ");
+            status.Text = "Grim tamamlandı · Dungeon Exit önünde bekliyor. Otomatik çıkış kapalı (Grim sayfasında açılır).";
             return true;
         }
         if (knownExit == null)
@@ -373,7 +514,7 @@ sealed partial class MemorySelectV3Form
             return;
         if (grim.IsRegion(snapshot.Player))
         {
-            if (d.Mode != "Solo Trial" && autoEnterGrim.Checked)
+            if (!d.IsSolo && autoEnterGrim.Checked)
             {
                 Stop("Beklenmeyen dungeon modu.");
                 return;
@@ -391,10 +532,16 @@ sealed partial class MemorySelectV3Form
         {
             portalUid = 0;
             selectedPortal = false;
+            gateSearch.Reset();
             excludedRoadCells.Clear();
             useImportedRoad = true;
             Log("Karakter konumu değişti · güncel konumdan rota hesaplanıyor");
             BuildRoadRoute(d);
+        }
+        if (expeditionPhase == 6 || expeditionPhase == 7)
+        {
+            ReverseTravelTick(d, now);
+            return;
         }
         if (expeditionPhase == 1)
         {
@@ -410,6 +557,13 @@ sealed partial class MemorySelectV3Form
                 i.Slot >= 13).OrderBy(i => i.Slot).FirstOrDefault();
             if (item == null)
             {
+                if (explorerRun != null)
+                {
+                    // an Explorer run goes on without the scroll: the road to the next area is walked and taken by the gates
+                    Log("Return Scroll yok; sonraki bölgeye yürünerek / kapılarla gidilecek.");
+                    BuildRoadRoute(d);
+                    return;
+                }
                 Stop("Çantada kullanılabilir Return Scroll yok.");
                 return;
             }
@@ -447,11 +601,14 @@ sealed partial class MemorySelectV3Form
         }
         if (expeditionPhase == 5)
         {
-            if (snapshot.Player.Distance(pendingArrival.Point()) < 65)
+            // The climbers' teleport lands right above or below where it was taken (about 30 units away): there the height tells the levels apart.
+            bool climbGate = pendingArrival.Id >= 441 && pendingArrival.Id <= 444;
+            if (snapshot.Player.Distance(pendingArrival.Point()) < 65 && (!climbGate || Math.Abs(snapshot.Player.Height - pendingArrival.Height) < 100))
             {
                 Log("Teleport varışı doğrulandı · " + pendingArrival.Code);
                 pendingArrival = null;
                 selectedPortal = false;
+                gateSearch.Reset();
                 BuildRoadRoute(d);
             }
             else
@@ -482,17 +639,33 @@ sealed partial class MemorySelectV3Form
                 bool hop = step.From != null && ExpeditionRules.Network.Links.Any(l => l.From == step.From.Id && l.To == step.To.Id);
                 var approach = hop ? step.From : step.To;
                 var npc = hop ? ExpeditionRules.FindGateNpc(snapshot, step.From) : null;
-                var destination = npc == null ? approach.Point() : npc.Position;
-                if (!ExpeditionRules.ApproachReached(snapshot.Player, destination))
-                {
-                    WalkChecked(destination, now, null, "Ulaşım: " + approach.Code + (npc == null ? "" :
-                        " · Canlı NPC’ye yaklaş"), false);
-                    return;
-                }
                 if (!hop)
                 {
+                    if (!ExpeditionRules.ApproachReached(snapshot.Player, approach.Point()))
+                    {
+                        WalkChecked(approach.Point(), now, null, "Ulaşım: " + approach.Code, false);
+                        return;
+                    }
                     transit.Dequeue();
                     routeWalker.Reset();
+                    return;
+                }
+                // A hop: once the gate's NPC is loaded (the client keeps the NPCs within about 45 units) selecting it and taking its teleport work from
+                // where the character stands (tried live at 34 and 42 units). Until then: to the gate's own point, then step towards the place the
+                // building table gives for the NPC. The two steps are never mixed, so the character does not walk back and forth between them.
+                var gatePlace = ExpeditionRules.NpcPlace(step.From);
+                var standNow = gatePlace == null ? null : ExpeditionRules.StandNear(snapshot.Player, gatePlace, gateSearch.Stand);
+                var gateStep = gateSearch.Next(npc != null, ExpeditionRules.ApproachReached(snapshot.Player, step.From.Point()), gatePlace != null,
+                    standNow != null && snapshot.Player.Distance(standNow) < 3, now);
+                if (gateStep == ExpeditionRules.GateStep.WalkToGate)
+                {
+                    WalkChecked(step.From.Point(), now, null, "Ulaşım: " + approach.Code, false);
+                    return;
+                }
+                if (gateStep == ExpeditionRules.GateStep.WalkToNpc)
+                {
+                    WalkChecked(ExpeditionRules.StandNear(snapshot.Player, gatePlace, gateSearch.Stand), now, null,
+                        "Ulaşım: " + approach.Code + " · kapı NPC'sine doğru (" + (int)gateSearch.Stand + ")", false);
                     return;
                 }
                 // A caravan never changes mount: the transport it rides stays summoned for the ferry.
@@ -523,12 +696,14 @@ sealed partial class MemorySelectV3Form
                 }
                 if (now - expeditionSince < 600)
                     return;
+                gateSearch.Reset();
                 if (!sender.Teleport(portalUid, step.From.Id, step.To.Id))
                 {
                     Stop("Geçiş isteği reddedildi.");
                     return;
                 }
-                Log("Teleport istendi · " + step.From.Code + " → " + step.To.Code + " UID " + portalUid);
+                var feeLink = ExpeditionRules.Network.Links.First(l => l.From == step.From.Id && l.To == step.To.Id);
+                Log("Teleport istendi · " + step.From.Code + " → " + step.To.Code + " UID " + portalUid + (feeLink.Fee > 0 ? " · " + feeLink.Fee + " altın" : ""));
                 transit.Dequeue();
                 pendingArrival = step.To;
                 expeditionSince = now;
@@ -562,8 +737,11 @@ sealed partial class MemorySelectV3Form
                 ExplorerArrived(now);
                 return;
             }
-            NotifyDone(caravanWalk ? "Kervan rotası bitti" : "Yürüyüş bitti", d.Name + (caravanWalk ? " · karakter hedef tüccarın yanında." :
-                " · karakter hedefe ulaştı."));
+            if (d.Code == "GOREV")
+                NotifyDone("Göreve varıldı", d.Name + " · karakter görev NPC’sinin yanında.");
+            else
+                NotifyDone(caravanWalk ? "Kervan rotası bitti" : "Yürüyüş bitti", d.Name + (caravanWalk ? " · karakter hedef tüccarın yanında." :
+                    " · karakter hedefe ulaştı."));
             Stop("Hedefe ulaşıldı · " + d.Name);
             return;
         }
@@ -609,7 +787,7 @@ sealed partial class MemorySelectV3Form
         }
         if (now - expeditionSince < 600)
             return;
-        var target = ExpeditionRules.Network.Gates.FirstOrDefault(g => g.Code == "GATE_NE_GRIM_" + d.Code + "_S");
+        var target = ExpeditionRules.Network.Gates.FirstOrDefault(g => g.Code == d.SoloGateCode);
         if (target == null)
         {
             Stop("Solo Trial hedef kaydı yok.");

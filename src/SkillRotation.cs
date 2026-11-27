@@ -2,16 +2,16 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-// One line of the skill list: a hotbar key and when to press it.
+// One line of the skill list: a hotbar key and when to press it. A skill is only ever used by pressing its key (never sent as a packet).
 //   Saldırı      pressed in turn while a target is selected. Seconds = this skill's own cooldown (0 = none).
 //                Target limits it to one monster class (Hepsi = any); MinMobs = only when at least that many monsters are close.
-//   Buff         pressed when due, no target needed. With a Skill ID the bot looks at the character's active buffs and presses
+//   Buff         pressed when due, no target needed. With a Skill ID (read only: the buff's id in the character's buff list) the bot presses
 //                the key only when that buff is gone; without one it repeats every Seconds (0 = once per run).
 //   Acil         emergency buff: pressed when HP falls below Percent, or when at least MinMobs monsters crowd the character.
 //   İyileştirme  pressed when HP falls below Percent; Seconds = cooldown
 //   Mana         pressed when MP falls below Percent; Seconds = cooldown
-// A line with a Skill ID and no key is used by its id (the client is told to use that skill; no key, no foreground window needed);
-// a line with a key presses the key.
+//   Parti buff   old kind that needed a packet: such a line is kept in the list but never used.
+// A line without a usable key is never used (the run says how many there are).
 public sealed class SkillSlot
 {
     public bool On = true;
@@ -20,15 +20,20 @@ public sealed class SkillSlot
     public int Seconds;
     public int Percent = 50;
     public string Name = "";
+    // Read only: the id of the buff in the character's buff list. It decides when the key is pressed; nothing is ever sent by it.
     public int SkillId;
     public string Target = "Hepsi";
     public int MinMobs;
+    // Kept for old settings (party buff lines); unused.
+    public string Members = "";
 }
 
 // Options that apply to the whole list (the phBot attack / buff tab check boxes that make sense for this bot).
 public sealed class SkillOptions
 {
-    public bool BuffWhileAttacking = true, Rearm = true, InOrder = true, Fallback = true, BuffOnly;
+    public bool BuffWhileAttacking = true, Rearm = true, InOrder = true, Fallback = true, BuffOnly, WeaponSwap = true;
+    // How much of a skill's prepare + cast time passes before the next skill is sent (percent; 100 = the whole time, lower = skills follow sooner; 40 was tried live).
+    public int CastPacePercent = 40;
 }
 
 public sealed class SkillProfile
@@ -70,11 +75,10 @@ static class KeyMessage
 
 sealed class SkillRotation
 {
-    internal const string Attack_ = "Saldırı", Buff_ = "Buff", Heal_ = "İyileştirme", Mana_ = "Mana", Emergency_ = "Acil";
+    internal const string Attack_ = "Saldırı", Buff_ = "Buff", Heal_ = "İyileştirme", Mana_ = "Mana", Emergency_ = "Acil", PartyBuff_ = "Parti buff";
+    // The kinds that can be chosen. PartyBuff_ (it needed a packet) is only known so that old lines keep their kind; it is never executed.
     internal static readonly string[] Kinds = { Attack_, Buff_, Emergency_, Heal_, Mana_ };
     internal const string AnyTarget = "Hepsi";
-    // Returned instead of a key for a line that has a Skill ID and no key: the caller uses LastSkillId.
-    internal const ushort IdOnly = 0xFFFF;
     internal static readonly string[] Targets = { AnyTarget, "General", "Champion", "Giant", "General Party", "Champion Party",
         "Giant Party", "Unique", "Diğer" };
 
@@ -89,21 +93,27 @@ sealed class SkillRotation
     readonly List<Entry> entries = new List<Entry>();
     int attackIndex;
 
-    // The skill id and kind of the line the last call returned a key (or IdOnly) for.
-    internal int LastSkillId { get; private set; }
-    internal string LastKind { get; private set; }
+    Entry lastEntry;
 
     ushort Chosen(Entry e)
     {
-        LastSkillId = e.SkillId;
-        LastKind = e.Kind;
+        lastEntry = e;
         return e.Key;
     }
 
-    internal bool HasIdOnly
+    // The line just chosen cannot be used yet: it is offered again at `until`, and the try does not count as a failure.
+    internal void DelayLast(long until)
     {
-        get { return entries.Any(e => e.Key == IdOnly); }
+        if (lastEntry == null)
+            return;
+        lastEntry.Due = until;
+        if (lastEntry.Kind == Buff_ && lastEntry.Failures > 0)
+            lastEntry.Failures--;
     }
+
+    // Enabled lines of the last Load that are never used: without a usable key, and old party buff lines.
+    internal int KeylessLines { get; private set; }
+    internal int InertPartyLines { get; private set; }
     SkillOptions options = new SkillOptions();
 
     internal bool HasAttack
@@ -130,7 +140,37 @@ sealed class SkillRotation
         return 0;
     }
 
-    // An error message for the first unusable line, or null.
+    // The key name for a pressed key (1-9, 0, A-Z, F1-F12; the number pad counts as the number row), or null when the key cannot be a hotbar key.
+    internal static string NameOfKey(System.Windows.Forms.Keys key)
+    {
+        if (key >= System.Windows.Forms.Keys.D0 && key <= System.Windows.Forms.Keys.D9)
+            return ((char)('0' + (key - System.Windows.Forms.Keys.D0))).ToString();
+        if (key >= System.Windows.Forms.Keys.NumPad0 && key <= System.Windows.Forms.Keys.NumPad9)
+            return ((char)('0' + (key - System.Windows.Forms.Keys.NumPad0))).ToString();
+        if (key >= System.Windows.Forms.Keys.A && key <= System.Windows.Forms.Keys.Z)
+            return ((char)('A' + (key - System.Windows.Forms.Keys.A))).ToString();
+        if (key >= System.Windows.Forms.Keys.F1 && key <= System.Windows.Forms.Keys.F12)
+            return "F" + (1 + (key - System.Windows.Forms.Keys.F1));
+        return null;
+    }
+
+    // The first hotbar key (1-9, 0, then F1-F12) that no line uses yet, for a new line.
+    internal static string NextFreeKey(IEnumerable<string> used)
+    {
+        var taken = new HashSet<ushort>(used.Select(ParseKey));
+        foreach (string k in new[] { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8", "F9", "F10", "F11", "F12" })
+            if (!taken.Contains(ParseKey(k)))
+                return k;
+        return "1";
+    }
+
+    // True for a line that is never used: no usable key (a line with an empty key stays in the list; the run says how many there are).
+    internal static bool Keyless(SkillSlot s)
+    {
+        return ParseKey(s.Key) == 0;
+    }
+
+    // An error message for the first unusable line, or null. A line with an empty key is not an error: it stays in the list and is never used.
     internal static string Validate(IList<SkillSlot> slots)
     {
         for (int i = 0; i < slots.Count; i++)
@@ -139,11 +179,9 @@ sealed class SkillRotation
             if (!s.On)
                 continue;
             bool noKey = string.IsNullOrWhiteSpace(s.Key);
-            if (noKey && s.SkillId <= 0)
-                return (i + 1) + ". skill: tuş yaz ya da skill’i listeden seçip Skill ID ver (tuşsuz kullanılır).";
             if (!noKey && ParseKey(s.Key) == 0)
                 return (i + 1) + ". skill: tuş geçersiz (1-9, 0, A-Z veya F1-F12).";
-            if (!Kinds.Contains(s.Kind))
+            if (!Kinds.Contains(s.Kind) && s.Kind != PartyBuff_)
                 return (i + 1) + ". skill: tür seçilmedi.";
             if (s.Seconds < 0 || s.Seconds > 3600)
                 return (i + 1) + ". skill: süre 0-3600 sn olmalı.";
@@ -170,16 +208,30 @@ sealed class SkillRotation
     {
         entries.Clear();
         attackIndex = 0;
+        KeylessLines = InertPartyLines = 0;
         options = skillOptions ?? new SkillOptions();
         foreach (var s in slots.Where(s => s.On))
         {
+            if (s.Kind == PartyBuff_)
+            {
+                InertPartyLines++;
+                continue;
+            }
             ushort key = ParseKey(s.Key);
-            if (key == 0 && s.SkillId > 0 && string.IsNullOrWhiteSpace(s.Key))
-                key = IdOnly;
-            if (key != 0 && Kinds.Contains(s.Kind))
+            if (key == 0)
+            {
+                KeylessLines++;
+                continue;
+            }
+            // A skill that takes no target (an imbue, a self buff) in an attack line is a buff: it is renewed when it has run out.
+            string kind = s.Kind;
+            var timing = s.SkillId > 0 ? SkillTiming.Of(s.SkillId) : null;
+            if (kind == Attack_ && timing != null && !timing.NeedsTarget)
+                kind = Buff_;
+            if (key != 0 && Kinds.Contains(kind))
                 entries.Add(new Entry
                 {
-                    Key = key, Kind = s.Kind, Seconds = Math.Max(0, s.Seconds), Percent = s.Percent, SkillId = Math.Max(0, s.SkillId),
+                    Key = key, Kind = kind, Seconds = Math.Max(0, s.Seconds), Percent = s.Percent, SkillId = Math.Max(0, s.SkillId),
                     Target = string.IsNullOrEmpty(s.Target) ? AnyTarget : s.Target, MinMobs = Math.Max(0, s.MinMobs)
                 });
         }
@@ -188,7 +240,7 @@ sealed class SkillRotation
     // All keys of the enabled lines, for the check against the start/stop shortcut.
     internal List<ushort> Keys()
     {
-        return entries.Where(e => e.Key != IdOnly).Select(e => e.Key).Distinct().ToList();
+        return entries.Select(e => e.Key).Distinct().ToList();
     }
 
     // After a revival or a change of area the buffs are gone: every buff is due again.

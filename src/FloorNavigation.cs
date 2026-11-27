@@ -61,7 +61,7 @@ sealed class FloorNavigation
 
     internal static FloorNavigation LoadCaptured(DungeonLocation location)
     {
-        if (location == null || location.Mode != "Solo Trial")
+        if (location == null || !location.IsSolo)
             return null;
         using (var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("GrimFloor." + location.Code +
             ".SoloTrial.json"))
@@ -71,7 +71,7 @@ sealed class FloorNavigation
             Capture data;
             using (var reader = new StreamReader(stream))
                 data = new JavaScriptSerializer { MaxJsonLength = 20000000 }.Deserialize<Capture>(reader.ReadToEnd());
-            if (data == null || data.Code != location.Code || data.Mode != location.Mode || data.Region != location.InnerRegion ||
+            if (data == null || data.Code != location.Code || data.Mode != "Solo Trial" || data.Region != location.InnerRegion ||
                 !data.Complete || !data.PositionStable || (data.Step != 4 && data.Step != 8) || data.Cells == null ||
                 data.Cells.Count < 2 || data.Cells.Count > 20000 || data.Edges == null)
                 throw new InvalidDataException("Kayıtlı dungeon haritası doğrulanamadı.");
@@ -121,9 +121,71 @@ sealed class FloorNavigation
         }
     }
 
-    internal void Advance(Func<Position, Position, bool> probe, int budget)
+    // Several walkability queries in one call of the game (answers 1 open, 0 blocked, -1 no answer: that pair is asked again on its own).
+    // The floor code gives them only for queries that do not depend on each other's answer; with none given every query is asked singly as before.
+    internal const int BatchSize = TargetSender.BatchMax;
+
+    static sbyte[] Ask(Func<IList<Position[]>, sbyte[]> many, List<Position[]> pairs)
+    {
+        var all = new sbyte[pairs.Count];
+        for (int i = 0; i < pairs.Count; i += BatchSize)
+        {
+            var chunk = pairs.GetRange(i, Math.Min(BatchSize, pairs.Count - i));
+            sbyte[] answers = many(chunk);
+            for (int k = 0; k < chunk.Count; k++)
+                all[i + k] = answers != null && answers.Length == chunk.Count ? answers[k] : (sbyte)-1;
+        }
+        return all;
+    }
+
+    static string EdgeKey(string a, string b)
+    {
+        return string.CompareOrdinal(a, b) < 0 ? a + ":" + b : b + ":" + a;
+    }
+
+    // The queries Advance is going to make next, in the order it makes them (the first one is given), as far as the budget goes: the rest of
+    // the working cell's directions and then the cells already waiting in the queue. Cells found by these queries come after the queue, so none
+    // of the answers can change which queries these are.
+    Dictionary<string, sbyte> Prefetch(Func<IList<Position[]>, sbyte[]> many, string firstEdge, Position from, Position to, int limit,
+        double minX, double minY)
+    {
+        limit = Math.Min(limit, 1 + 4500 - Queries);
+        var keys = new List<string> { firstEdge };
+        var pairs = new List<Position[]> { new[] { from, to } };
+        var seen = new HashSet<string> { firstEdge };
+        Action<FloorCell, int> scan = (cell, first) =>
+        {
+            for (int d = first; d < 4 && pairs.Count < limit; d++)
+            {
+                var next = new FloorCell { X = cell.X + dx[d], Y = cell.Y + dy[d] };
+                Position p = PositionOf(next);
+                if (p.X < minX + 3 || p.X > minX + 189 || p.Y < minY + 3 || p.Y > minY + 381)
+                    continue;
+                string edge = EdgeKey(cell.Key, next.Key);
+                if (tested.Contains(edge) || !seen.Add(edge))
+                    continue;
+                keys.Add(edge);
+                pairs.Add(new[] { PositionOf(cell), p });
+            }
+        };
+        scan(working, direction);
+        foreach (var cell in queue)
+        {
+            if (pairs.Count >= limit)
+                break;
+            scan(cell, 0);
+        }
+        sbyte[] answers = Ask(many, pairs);
+        var ready = new Dictionary<string, sbyte>();
+        for (int i = 0; i < keys.Count; i++)
+            ready[keys[i]] = answers[i];
+        return ready;
+    }
+
+    internal void Advance(Func<Position, Position, bool> probe, int budget, Func<IList<Position[]>, sbyte[]> many = null)
     {
         double minX = ((InnerRegion & 255) - 135) * 192, minY = ((InnerRegion >> 8) - 92) * 192;
+        Dictionary<string, sbyte> ready = null;
         while (!Done && budget > 0)
         {
             if (working == null)
@@ -153,7 +215,15 @@ sealed class FloorNavigation
                 throw new InvalidOperationException("Dungeon zemin taraması sınırı aşıldı; rota doğrulanamadı.");
             Queries++;
             budget--;
-            if (!probe(PositionOf(working), p))
+            Position origin = PositionOf(working);
+            sbyte answer = -1;
+            if (many != null)
+            {
+                if (ready == null || !ready.ContainsKey(edge))
+                    ready = Prefetch(many, edge, origin, p, budget + 1, minX, minY);
+                answer = ready[edge];
+            }
+            if (answer < 0 ? !probe(origin, p) : answer == 0)
                 continue;
             if (!Cells.ContainsKey(next.Key))
             {
@@ -166,14 +236,71 @@ sealed class FloorNavigation
         }
     }
 
-    internal void ObservePosition(Position p, Func<Position, Position, bool> probe = null)
+    // The first of the candidates (in the order given) that the character stands on or can walk to; with several queries to ask they go to the
+    // game together (they do not depend on each other: only the first open one counts).
+    FloorCell FirstOpen(Position p, IEnumerable<FloorCell> candidates, double range, Func<Position, Position, bool> probe,
+        Func<IList<Position[]>, sbyte[]> many)
     {
+        var list = new List<FloorCell>();
+        var pairs = new List<Position[]>();
+        foreach (var c in candidates)
+        {
+            double d = PositionOf(c).Distance(p);
+            if (d < .1)
+            {
+                list.Add(c);
+                break;
+            }
+            if (d <= range)
+            {
+                list.Add(c);
+                pairs.Add(new[] { p, PositionOf(c) });
+            }
+        }
+        sbyte[] answers = pairs.Count == 0 ? new sbyte[0] : Ask(many, pairs);
+        int k = 0;
+        foreach (var c in list)
+        {
+            if (PositionOf(c).Distance(p) < .1)
+                return c;
+            sbyte answer = answers[k++];
+            if (answer < 0 ? probe(p, PositionOf(c)) : answer == 1)
+                return c;
+        }
+        return null;
+    }
+
+    // What the last look at a position (with batched queries) found: the same position over the same cells and links marks the same cells.
+    Position observed;
+    int observedGraph = -1;
+
+    int GraphSize()
+    {
+        int n = Cells.Count;
+        foreach (var e in Edges.Values)
+            n += e.Count;
+        return n;
+    }
+
+    internal void ObservePosition(Position p, Func<Position, Position, bool> probe = null, Func<IList<Position[]>, sbyte[]> many = null)
+    {
+        bool batched = probe != null && many != null;
+        if (batched && observed != null && observedGraph == GraphSize() && observed.Region == p.Region && observed.X == p.X &&
+            observed.Y == p.Y && observed.Height == p.Height)
+            return;
         // Coverage follows graph distance, so a room across a wall is not marked
         // visited merely because it is close in straight-line coordinates.
-        var start = Cells.Values.OrderBy(c => PositionOf(c).Distance(p)).Take(12).FirstOrDefault(c => PositionOf(c).Distance(p) <.1 ||
+        var nearest = Cells.Values.OrderBy(c => PositionOf(c).Distance(p)).Take(12);
+        var start = batched ? FirstOpen(p, nearest, Step * 1.5, probe, many) : nearest.FirstOrDefault(c => PositionOf(c).Distance(p) <.1 ||
             (PositionOf(c).Distance(p) <= Step * 1.5 && (probe == null || probe(p, PositionOf(c)))));
+        observed = null;
         if (start == null)
             return;
+        if (batched)
+        {
+            observed = p.Copy();
+            observedGraph = GraphSize();
+        }
         var q = new Queue<string>();
         var distances = new Dictionary<string, int>();
         q.Enqueue(start.Key);
@@ -246,12 +373,13 @@ sealed class FloorNavigation
         get { return Done && Cells.Count > 1 && Covered.Count == Cells.Count; }
     }
 
-    internal List<Position> RouteToUncovered(Position current, Func<Position, Position, bool> probe)
+    internal List<Position> RouteToUncovered(Position current, Func<Position, Position, bool> probe, Func<IList<Position[]>, sbyte[]> many = null)
     {
         if (!Done)
             return new List<Position>();
         var near = Cells.Values.OrderBy(c => PositionOf(c).Distance(current)).Take(12).ToList();
-        FloorCell start = near.FirstOrDefault(c => PositionOf(c).Distance(current) <.1 || probe(current, PositionOf(c)));
+        FloorCell start = many != null ? FirstOpen(current, near, double.MaxValue, probe, many) :
+            near.FirstOrDefault(c => PositionOf(c).Distance(current) <.1 || probe(current, PositionOf(c)));
         if (start == null)
             throw new InvalidOperationException("Mevcut konumdan doğrulanmış dungeon ağına yol bulunamadı.");
         var q = new Queue<string>();

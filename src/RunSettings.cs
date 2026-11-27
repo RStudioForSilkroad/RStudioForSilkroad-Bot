@@ -42,11 +42,6 @@ sealed partial class MemorySelectV3Form
         get { return (int)reviveSeconds.Value; }
     }
 
-    int RunDeathLimit
-    {
-        get { return (int)deathLimit.Value; }
-    }
-
     string RunKeys
     {
         get { return keys.Text; }

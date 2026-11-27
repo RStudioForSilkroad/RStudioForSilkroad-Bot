@@ -146,5 +146,17 @@ static class NavigationChecks
         for (int i = 0; i < 10 && !path.Failed; i++)
             path.Advance((a, b) => false, 32);
         check(!path.UseVerifiedLeg(), "A partial route cannot invent progress when no connected terrain exists");
+        // Jupiter Temple (D10): from the Garden of Gods Reverse point the stairs to the gate are on the map; closing one cell of them
+        // (the forecourt, cell 308059) leaves no error but a dead-end live approach, which the caller has to be told about.
+        var temple = V3Data.Dungeons.First(x => x.Code == "D10" && x.Mode == "Solo Trial").Entrance();
+        var garden = ReverseRules.Find(3).Point();
+        var mapped = ExpeditionRules.Plan(garden, temple);
+        check(!RoadMesh.LastLiveApproach && mapped.Last().CellId >= 0 && mapped.Last().To.Point().Distance(temple) < 12,
+            "D10 gate is reached over mapped stairs from the Garden of Gods Reverse point");
+        var closedForecourt = ExpeditionRules.Plan(garden, temple, new System.Collections.Generic.HashSet<int> { 308059 });
+        check(RoadMesh.LastLiveApproach && closedForecourt.Last().CellId < 0 && closedForecourt.Count < mapped.Count,
+            "A closed stair cell turns the D10 route into a flagged live approach");
+        ExpeditionRules.Plan(garden, temple);
+        check(!RoadMesh.LastLiveApproach, "The live-approach flag is reset by the next plan");
     }
 }

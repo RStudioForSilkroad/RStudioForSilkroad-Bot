@@ -15,8 +15,8 @@ sealed class ConfirmDialog : Form
         MinimizeBox = false;
         ShowInTaskbar = false;
         ClientSize = new Size(440, 190);
-        BackColor = Ui.Surface;
-        ForeColor = Ui.Text;
+        BackColor = Ui.Card;
+        ForeColor = Ui.Ink;
         Font = Ui.Body;
         var heading = new Label { Text = title, Font = Ui.Heading, Left = 24, Top = 22, Width = 392, Height = 28 };
         var body = new Label { Text = message, Left = 24, Top = 56, Width = 392, Height = 60, ForeColor = Ui.TextSecondary };
@@ -31,7 +31,7 @@ sealed class ConfirmDialog : Form
         bar.Controls.Add(decline);
         bar.Paint += delegate(object sender, PaintEventArgs e)
         {
-            using (var line = new Pen(Ui.Border))
+            using (var line = new Pen(Ui.Bronze))
                 e.Graphics.DrawLine(line, 0, 0, bar.Width, 0);
         };
         Controls.Add(heading);

@@ -413,6 +413,8 @@ sealed class RoadMesh
     // Where the connected road network came closest to the goal in the last planning that needed a live approach (diagnostics).
     internal static Position LastReach;
     internal static double LastReachGap;
+    // The last Plan did not reach the entrance over the map: its last stretch is walked live (a closed cell can turn a mapped route into this).
+    internal static bool LastLiveApproach;
     internal static double WallPenalty = 40, ObjectPenalty = 1.5;
     // The last stretch to an entrance that the map cannot reach is walked live, which is less reliable: every unit of it counts several times.
     const double LiveGapWeight = 6, ShortcutGap = 240, ShortcutMargin = 600;
@@ -549,6 +551,7 @@ sealed class RoadMesh
             nearestNode = shortNode;
             nearestGap = shortGap;
         }
+        LastLiveApproach = needsLiveApproach;
         if (needsLiveApproach)
         {
             // The live walker validates the final short leg around portal objects.

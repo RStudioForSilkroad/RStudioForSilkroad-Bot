@@ -14,6 +14,8 @@ Açık renkli, kartlı bir masaüstü arayüzü. Tasarım kuralları [docs/desig
 
 Kervan Rotası sayfasında Hotan - Jangan, Jangan - Hotan, Hotan - Donwhang ve Donwhang - Hotan düğmeleri vardır. Rota yalnızca yoldan hesaplanır (ticaret malı ışınlanamaz): düğme `walk,X,Y,Z` satırlarından oluşan bir script yazar ve karakteri hedef tüccar NPC'ye yürütür. Tüccar konumları programla gelmez; her şehirde NPC'ye oyunda tıklayıp "Seçili NPC'yi kaydet" demek yeterlidir. Eklentilerin incelenmesi: [docs/xplugins-analizi.md](docs/xplugins-analizi.md).
 
+Skill'ler yalnız hotbar tuşuna basılarak kullanılır (Saldırı sayfası). Bot hiçbir skill'i paket / skill ID ile göndermez: skill paketi istemciyi çökertiyordu, tuş basışı çökertmiyor. Oyun penceresi önde olmalıdır; tuşu olmayan satır atlanır. Buff ID yalnız buff'ın açık olup olmadığını okumak içindir.
+
 ## İndirme ve güncelleme
 
 Hazır EXE dosyası [Releases](https://github.com/RStudioForSilkroad/RStudioForSilkroad-Bot/releases/latest) sayfasındadır. `SilkroadRStudio.exe` dosyasını indirip açın.

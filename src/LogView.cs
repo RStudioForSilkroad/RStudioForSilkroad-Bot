@@ -45,9 +45,8 @@ sealed partial class MemorySelectV3Form
         {
             try
             {
-                string value = File.Exists(EventLogPath) ? File.ReadAllText(EventLogPath, Encoding.UTF8) :
+                logView.Text = File.Exists(EventLogPath) ? LogFiles.ReadTail(EventLogPath, LogFiles.TailBytes) :
                     "Henüz kayıt yok.";
-                logView.Text = value.Length > 200000 ? value.Substring(value.Length - 200000) : value;
                 logView.SelectionStart = logView.TextLength;
                 logView.ScrollToCaret();
             }

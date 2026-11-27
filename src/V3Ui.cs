@@ -10,9 +10,11 @@ using System.Windows.Forms;
 
 sealed class MapViewer : UserControl
 {
-    readonly Panel viewport = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Color.FromArgb(232, 236, 243) };
+    readonly Panel viewport = new Panel { Dock = DockStyle.Fill, AutoScroll = true, BackColor = Ui.Field };
     readonly PictureBox picture = new PictureBox { SizeMode = PictureBoxSizeMode.StretchImage };
     Image source;
+    string resource;
+    PointF? marker;
     double zoom = 1;
     bool dragging;
     Point dragStart, scrollStart;
@@ -47,9 +49,35 @@ sealed class MapViewer : UserControl
         };
         VisibleChanged += delegate
         {
-            if (Visible)
+            if (Visible && marker == null)
                 Fit();
         };
+        // The spot being shown on the game's own map: a ring with a dot.
+        picture.Paint += delegate(object o, PaintEventArgs e)
+        {
+            if (marker == null)
+                return;
+            float x = (float)(marker.Value.X * zoom), y = (float)(marker.Value.Y * zoom);
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            using (var halo = new Pen(Color.White, 5))
+                e.Graphics.DrawEllipse(halo, x - 13, y - 13, 26, 26);
+            using (var ring = new Pen(Color.FromArgb(220, 38, 38), 3))
+                e.Graphics.DrawEllipse(ring, x - 13, y - 13, 26, 26);
+            using (var dot = new SolidBrush(Color.FromArgb(220, 38, 38)))
+                e.Graphics.FillEllipse(dot, x - 4, y - 4, 8, 8);
+        };
+    }
+
+    // Shows a place on the game's world map (the whole Nanzhang land), centred and marked.
+    internal void FocusWorld(double x, double y)
+    {
+        if (resource != WorldMapView.ResourceName)
+            LoadResource(WorldMapView.ResourceName);
+        marker = WorldMapView.ToImage(x, y);
+        SetZoom(.8);
+        picture.Invalidate();
+        viewport.AutoScrollPosition = new Point(Math.Max(0, (int)(marker.Value.X * zoom - viewport.ClientSize.Width / 2)),
+            Math.Max(0, (int)(marker.Value.Y * zoom - viewport.ClientSize.Height / 2)));
     }
 
     void Wheel(object o, MouseEventArgs e)
@@ -72,6 +100,8 @@ sealed class MapViewer : UserControl
                 throw new IOException("Gömülü harita yok: " + name);
             using (var im = Image.FromStream(stream))
             {
+                resource = name;
+                marker = null;
                 picture.Image = null;
                 if (source != null)
                     source.Dispose();
@@ -84,6 +114,8 @@ sealed class MapViewer : UserControl
 
     internal void FocusNpc(double x, double y)
     {
+        if (resource != "nanzhang-map.jpg")
+            LoadResource("nanzhang-map.jpg");
         SetZoom(.65);
         viewport.AutoScrollPosition = new Point(Math.Max(0, (int)((160 + (x - 5500) * 5.5) * zoom - viewport.ClientSize.Width / 2)),
             Math.Max(0, (int)((220 + (-1400 - y) * 5.5) * zoom - viewport.ClientSize.Height / 2)));
@@ -130,20 +162,18 @@ sealed partial class MemorySelectV3Form : Form
     bool fillingDungeons;
     readonly Panel huntPanel = new Panel();
     readonly ListBox mobList = new ListBox();
-    readonly NumericUpDown reviveSeconds = new NumericUpDown(), deathLimit = new NumericUpDown();
+    readonly NumericUpDown reviveSeconds = new NumericUpDown();
     readonly CheckBox autoRecovery = new CheckBox();
-    readonly Label deathsLabel = new Label(), grimStatus = new Label(), gridCount = new Label();
+    readonly Label recoveryLabel = new Label(), grimStatus = new Label(), gridCount = new Label();
     readonly TabControl tabs = new FlatTabs();
     readonly DataGridView dungeonGrid = new DataGridView();
-    readonly MapViewer explorerView = new MapViewer(), dungeonView = new MapViewer();
-    readonly DungeonRadar dungeonRadar = new DungeonRadar();
-    readonly TabControl grimViews = new FlatTabs();
+    readonly MapViewer explorerView = new MapViewer();
     readonly DeathRecovery recovery = new DeathRecovery();
     readonly GrimRun grim = new GrimRun();
     readonly TravelWatch travel = new TravelWatch();
     OperationMode operation;
     readonly HashSet<string> selectedMobs = new HashSet<string>(StringComparer.Ordinal);
-    readonly StringBuilder eventLog = new StringBuilder();
+    readonly CappedLog eventLog = new CappedLog();
     long readErrorSince;
     V3Settings settings;
 
@@ -153,68 +183,33 @@ sealed partial class MemorySelectV3Form : Form
             using (var icon = new Icon(stream))
                 Icon = (Icon)icon.Clone();
         Text = AppPaths.AppName + " " + Application.ProductVersion;
-        ClientSize = new Size(1480, 900);
+        ClientSize = new Size(1120, 780);
         MinimumSize = new Size(1120, 700);
         StartPosition = FormStartPosition.CenterScreen;
-        BackColor = Ui.Canvas;
+        BackColor = Ui.Stone;
         Font = Ui.Body;
         AutoScaleMode = AutoScaleMode.Dpi;
 
-        // Header, row 1: connection controls. Row 2: connection state, accent colour and release notes.
-        var header = new Panel { Dock = DockStyle.Top, Height = 84 };
-        var connection = new FlowLayoutPanel { Location = new Point(264, 12), Size = new Size(1180, 36), WrapContents = false };
-        processes.Width = 300;
-        processes.DropDownStyle = ComboBoxStyle.DropDownList;
-        processes.Margin = new Padding(0, 3, 10, 0);
-        connection.Controls.Add(processes);
-        connection.Controls.Add(Btn("Yenile", RefreshProcesses, 96, true, ButtonKind.Secondary));
-        connection.Controls.Add(Btn("Bağlan / Oku", Connect, 140, true, ButtonKind.Primary));
-        connection.Controls.Add(Btn("Client’ı gizle", delegate { SetClientVisibility(false); }, 124, false, ButtonKind.Secondary));
-        connection.Controls.Add(Btn("Client’ı göster", delegate { SetClientVisibility(true); }, 130, false, ButtonKind.Secondary));
-        foreach (Control item in connection.Controls)
-            if (item is Button)
-                item.Margin = new Padding(0, 0, 8, 0);
-        locked.Add(processes);
-        header.Controls.Add(connection);
-        position.SetBounds(40, 52, 900, 24);
+        // The frame (page list, live log, buttons, status strip) is built after the pages, in BuildShell.
         position.Text = "Bağlı değil.";
-        position.TextAlign = ContentAlignment.MiddleLeft;
-        header.Controls.Add(position);
-        whatsNewButton = Btn("Yenilikler", delegate { ShowWhatsNewNow(); }, 108, false, ButtonKind.Ghost);
-        header.Controls.Add(whatsNewButton);
-
-        // Footer: the two buttons that start and stop the automation, and the current status line.
-        var footer = new Panel { Dock = DockStyle.Bottom, Height = 68 };
-        var start = new Button { Text = "Başlat", Location = new Point(16, 14), Size = new Size(172, 40) };
-        start.Click += delegate { Safe(StartRequested); };
-        Fancy.Kind(start, ButtonKind.Success);
-        var stop = new Button { Text = "Durdur", Location = new Point(198, 14), Size = new Size(140, 40) };
-        stop.Click += delegate { Stop("Durduruldu."); };
-        Fancy.Kind(stop, ButtonKind.Danger);
-        status.Location = new Point(358, 14);
-        status.Size = new Size(1000, 40);
-        status.TextAlign = ContentAlignment.MiddleLeft;
-        status.AutoEllipsis = true;
-        footer.Controls.AddRange(new Control[] { start, stop, status });
+        whatsNewButton = Btn("Yenilikler", delegate { ShowWhatsNewNow(); }, 108, false, ButtonKind.Secondary);
         status.Text = "Otomasyon kapalı.";
-        footer.Paint += delegate(object sender, PaintEventArgs e)
-        {
-            using (var line = new Pen(Ui.Border))
-                e.Graphics.DrawLine(line, 0, 0, footer.Width, 0);
-        };
-        footer.Resize += delegate { status.Width = Math.Max(100, footer.ClientSize.Width - status.Left - Ui.Pad); };
-        footerPanel = footer;
 
         tabs.Dock = DockStyle.Fill;
         tabs.Appearance = TabAppearance.FlatButtons;
         tabs.SizeMode = TabSizeMode.Fixed;
         tabs.ItemSize = new Size(1, 1);
-        var huntTab = new TabPage("Av / Ayarlar");
+        var huntTab = new TabPage("Av Alanı");
         var explorerTab = new TabPage("Explorer Yerleri");
         var cryptTab = new TabPage("Grim Crypt");
         tabs.TabPages.AddRange(new[] { huntTab, explorerTab, cryptTab });
+        statsTab = new TabPage("İstatistik");
+        protectTab = new TabPage("Koruma");
+        inventoryTab = new TabPage("Envanter");
+        notifyTab = new TabPage("Bildirimler");
+        questTab = new TabPage("Quest");
         huntPanel.Dock = DockStyle.Fill;
-        huntPanel.AutoScroll = true;
+        huntPanel.AutoScroll = false;
         huntTab.Controls.Add(huntPanel);
         BuildHunt();
         BuildUpdateControls();
@@ -223,35 +218,16 @@ sealed partial class MemorySelectV3Form : Form
         BuildGrim(cryptTab);
         var workspace = new Panel { Dock = DockStyle.Fill };
         workspace.Controls.Add(tabs);
-        headerPanel = header;
-        Ui.DoubleBuffer(header);
-        header.Paint += PaintHeader;
-        header.Resize += delegate
-        {
-            connection.Width = Math.Max(300, header.ClientSize.Width - connection.Left - Ui.Pad);
-            position.Width = Math.Max(200, header.ClientSize.Width - position.Left - 360);
-            header.Invalidate();
-        };
-        Controls.Add(workspace);
-        Controls.Add(footer);
-        Controls.Add(header);
         explorerView.LoadResource("explorer-52.jpg");
         tabs.SelectedIndexChanged += delegate
         {
-            stop.Text = tabs.SelectedIndex == 2 ? "Grim Crypt Durdur" : "Durdur";
-            start.Text = tabs.SelectedIndex == 2 ? "Grim Crypt Başlat" : "Başlat";
-            stop.Width = tabs.SelectedIndex == 2 ? 190 : 140;
-            start.Width = tabs.SelectedIndex == 2 ? 200 : 172;
-            stop.Left = start.Right + 10;
-            status.Left = stop.Right + 20;
-            status.Width = Math.Max(100, footer.ClientSize.Width - status.Left - Ui.Pad);
             if (tabs.SelectedIndex == 1)
             {
                 explorerView.Fit();
                 explorerMap.Refit();
             }
             if (tabs.SelectedIndex == 2)
-                dungeonView.Fit();
+                EnsureRouteSummaries();
         };
         settings = V3Settings.Load();
         RestoreSettings();
@@ -274,136 +250,19 @@ sealed partial class MemorySelectV3Form : Form
         BuildSkillsPage();
         RestoreSkillSettings(settings);
         BuildLogTab();
-        BuildNavigation(workspace);
+        BuildPhPages();
+        BuildHomePage();
+        // The window opens on the page that tells what the update brought.
+        tabs.SelectedTab = homeTab;
+        BuildShell(workspace);
+        InitTray();
         ApplyTheme();
-        header.PerformLayout();
-        PlaceHeaderRight();
         // The window is built with layout held back and laid out once when it is first shown (see OnShown).
         Ui.Freeze(this);
         startupFrozen = true;
     }
 
     bool startupFrozen;
-
-    ListBox sidebar;
-    int sidebarHover = -1;
-
-    static readonly Dictionary<string, string> navIcons = new Dictionary<string, string>
-    {
-        { "Av / Ayarlar", "" },
-        { "Explorer Yerleri", "" },
-        { "Grim Crypt", "" },
-        { "Güncelleme/Kılavuz", "" },
-        { "Çift Hesap · Deneme", "" },
-        { "Nanzhang NPC", "" },
-        { "Kervan Rotası", "" },
-        { "Skiller", "" },
-        { "Log", "" }
-    };
-
-    // Navigation: a white sidebar with an icon and a label per page, two captions, a tinted pill for the current page.
-    void BuildNavigation(Panel workspace)
-    {
-        sidebarHost = new Panel { Dock = DockStyle.Left, Width = 224, Padding = new Padding(0, 0, 1, 0), BackColor = Ui.Border };
-        sidebar = new ListBox { Dock = DockStyle.Fill, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawVariable,
-            BorderStyle = BorderStyle.None, Font = Ui.Body, BackColor = Ui.Surface };
-        // Sidebar order: the caravan page belongs to the work group, right after Grim Crypt (tab indexes stay as they are).
-        var order = tabs.TabPages.Cast<TabPage>().ToList();
-        var caravanPage = order.FirstOrDefault(t => t.Text == "Kervan Rotası");
-        if (caravanPage != null)
-        {
-            order.Remove(caravanPage);
-            order.Insert(3, caravanPage);
-        }
-        // The skills page sits with the work pages too, after the caravan page.
-        var skillsPage = order.FirstOrDefault(t => t.Text == "Skiller");
-        if (skillsPage != null)
-        {
-            order.Remove(skillsPage);
-            order.Insert(4, skillsPage);
-        }
-        foreach (TabPage page in order)
-            sidebar.Items.Add(page);
-        Func<int, string> caption = i => i == 0 ? "ÇALIŞMA" : i == 5 ? "ARAÇLAR" : null;
-        sidebar.MeasureItem += delegate(object sender, MeasureItemEventArgs e)
-        {
-            e.ItemHeight = (caption(e.Index) == null ? 0 : 34) + 44;
-        };
-        sidebar.DrawItem += delegate(object sender, DrawItemEventArgs e)
-        {
-            if (e.Index < 0)
-                return;
-            var g = e.Graphics;
-            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-            using (var back = new SolidBrush(Ui.Surface))
-                g.FillRectangle(back, e.Bounds);
-            var bounds = e.Bounds;
-            string title = caption(e.Index);
-            if (title != null)
-            {
-                TextRenderer.DrawText(g, title, Ui.Small, new Rectangle(bounds.X + 22, bounds.Y + 8, bounds.Width - 30, 22), Ui.TextMuted,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-                bounds.Y += 34;
-                bounds.Height -= 34;
-            }
-            bool selected = (e.State & DrawItemState.Selected) != 0, hover = e.Index == sidebarHover;
-            var pill = new Rectangle(bounds.X + 10, bounds.Y + 2, bounds.Width - 21, bounds.Height - 4);
-            if (selected || hover)
-                using (var path = Ui.RoundRect(pill, 6))
-                    using (var fill = new SolidBrush(selected ? Ui.AccentTint : Ui.SurfaceAlt))
-                        g.FillPath(fill, path);
-            if (selected)
-                using (var bar = new SolidBrush(Ui.Accent))
-                    g.FillRectangle(bar, pill.X, pill.Y + 8, 3, pill.Height - 16);
-            var page = (TabPage)sidebar.Items[e.Index];
-            Color ink = selected ? Ui.Accent : Ui.TextSecondary;
-            int textLeft = pill.X + 16;
-            string glyph;
-            if (Ui.IconsAvailable && navIcons.TryGetValue(page.Text, out glyph))
-            {
-                TextRenderer.DrawText(g, glyph, Ui.IconFont, new Rectangle(pill.X + 12, pill.Y, 28, pill.Height), ink,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-                textLeft = pill.X + 46;
-            }
-            TextRenderer.DrawText(g, page.Text, selected ? Ui.BodyBold : Ui.Body, new Rectangle(textLeft, pill.Y, pill.Right - textLeft - 6,
-                pill.Height), selected ? Ui.Accent : Ui.Text, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis |
-                TextFormatFlags.NoPrefix);
-            if ((e.State & DrawItemState.Focus) != 0 && sidebar.Focused)
-                using (var ring = new Pen(Ui.Accent, 2f))
-                    using (var path = Ui.RoundRect(pill, 6))
-                        g.DrawPath(ring, path);
-        };
-        sidebar.MouseMove += delegate(object sender, MouseEventArgs e)
-        {
-            int index = sidebar.IndexFromPoint(e.Location);
-            if (index != sidebarHover)
-            {
-                sidebarHover = index;
-                sidebar.Invalidate();
-            }
-        };
-        sidebar.MouseLeave += delegate
-        {
-            sidebarHover = -1;
-            sidebar.Invalidate();
-        };
-        sidebar.SelectedItem = tabs.SelectedTab;
-        sidebar.SelectedIndexChanged += delegate
-        {
-            var page = sidebar.SelectedItem as TabPage;
-            if (page != null && tabs.SelectedTab != page)
-                ((FlatTabs)tabs).Choose(page);
-        };
-        tabs.SelectedIndexChanged += delegate
-        {
-            if (tabs.SelectedTab != null)
-                sidebar.SelectedItem = tabs.SelectedTab;
-        };
-        sidebarHost.Controls.Add(sidebar);
-        workspace.Controls.Add(sidebarHost);
-        if (tabs.SelectedTab != null)
-            sidebar.SelectedItem = tabs.SelectedTab;
-    }
 
     void Safe(Action action)
     {
@@ -486,35 +345,70 @@ sealed partial class MemorySelectV3Form : Form
         return content;
     }
 
-    // ---- Hunt page: cards in two columns when there is room, one column otherwise ----
+    // ---- Cards: group boxes of a fixed width, stacked inside the sub-pages of a page ----
 
-    FlowLayoutPanel huntRoot, leftColumn, rightColumn;
-    TableLayoutPanel huntColumns;
-    CardBox liveCard;
-    readonly List<CardBox> leftCards = new List<CardBox>(), rightCards = new List<CardBox>();
-    readonly List<FlowLayoutPanel> huntRows = new List<FlowLayoutPanel>();
-    readonly List<Control> huntStretch = new List<Control>();
+    FlowLayoutPanel cardHost;
+    int cardInner = 600;
+    const int CardWidth = 640, WideCardWidth = 860, TileWidth = 410;
+    TabPage statsTab, protectTab, inventoryTab, notifyTab;
+    readonly CheckBox autoHpPotion = new CheckBox(), autoMpPotion = new CheckBox();
+    readonly NumericUpDown hpPotionPercent = new NumericUpDown(), mpPotionPercent = new NumericUpDown();
+    long nextHpPotion, nextMpPotion;
+    bool potionLogged;
 
-    // column: 0 = left, 1 = right, 2 = full width below both columns
-    FlowLayoutPanel Card(string title, int column = 0)
+    // The sub-pages of a page: a page host without the system frame, driven by the text tab strip above it.
+    TabControl SubTabs(Control host)
+    {
+        var t = new FlatTabs { Dock = DockStyle.Fill };
+        host.Controls.Add(t);
+        host.Controls.Add(new TabStrip(t));
+        return t;
+    }
+
+    // One sub-page: a scrolling area whose flow takes the cards; it becomes the place the next cards go to.
+    FlowLayoutPanel SubPage(TabControl t, string title)
+    {
+        var tp = new TabPage(title) { AutoScroll = true };
+        var flow = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
+            FlowDirection.TopDown, WrapContents = false, Padding = new Padding(Ui.Pad) };
+        tp.Controls.Add(flow);
+        t.TabPages.Add(tp);
+        cardHost = flow;
+        return flow;
+    }
+
+    // One page of cards laid out as boxes: they sit side by side and wrap to the next row with the window width; the page scrolls.
+    FlowLayoutPanel TilePage(Control host)
+    {
+        var scroller = new Panel { Dock = DockStyle.Fill, AutoScroll = true };
+        var flow = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection = FlowDirection.LeftToRight,
+            WrapContents = true, Location = new Point(0, 0), Padding = new Padding(Ui.Pad), Margin = new Padding(0), MaximumSize = new Size(880, 0) };
+        scroller.Controls.Add(flow);
+        scroller.Resize += delegate { flow.MaximumSize = new Size(Math.Max(300, scroller.ClientSize.Width), 0); };
+        host.Controls.Add(scroller);
+        cardHost = flow;
+        return flow;
+    }
+
+    FlowLayoutPanel Card(string title, bool wide = false, int width = 0)
     {
         var g = new CardBox(title);
         var f = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
             FlowDirection.TopDown, WrapContents = false, Dock = DockStyle.Top, Margin = new Padding(0) };
         g.Controls.Add(f);
-        if (column == 2)
-            liveCard = g;
-        else
-            (column == 0 ? leftCards : rightCards).Add(g);
+        int w = width > 0 ? width : wide ? WideCardWidth : CardWidth;
+        g.MinimumSize = new Size(w, 0);
+        g.Margin = new Padding(0, 0, Ui.Gap, Ui.Gap);
+        cardInner = w - 2 * Ui.Pad - 2;
+        cardHost.Controls.Add(g);
         return f;
     }
 
     FlowLayoutPanel Line(FlowLayoutPanel card)
     {
         var r = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true,
-            Margin = new Padding(0, 2, 0, 2) };
+            Margin = new Padding(0, 2, 0, 2), MaximumSize = new Size(cardInner, 0) };
         card.Controls.Add(r);
-        huntRows.Add(r);
         return r;
     }
 
@@ -522,116 +416,41 @@ sealed partial class MemorySelectV3Form : Form
     T Stretch<T>(T control) where T : Control
     {
         control.Margin = new Padding(0, 0, 0, 6);
-        huntStretch.Add(control);
+        control.Width = cardInner;
         return control;
     }
 
-    bool arranged, arrangedTwo;
-    int arrangedUsable;
-    internal static int ArrangeRuns;
-
-    void ArrangeHunt()
-    {
-        if (huntRoot == null)
-            return;
-        // Before the window has been laid out the panel has no width yet; assume the default window size.
-        int panelWidth = huntPanel.ClientSize.Width < 200 ? 1240 : huntPanel.ClientSize.Width;
-        int usable = Math.Max(520, panelWidth - huntRoot.Padding.Horizontal);
-        bool two = usable >= 1060;
-        int gap = Ui.Pad;
-        int cardWidth = two ? (usable - gap) / 2 : usable;
-        // The panel is resized many times while tabs switch and scrollbars appear; rebuilding all cards each time is what made the page slow.
-        if (arranged && two == arrangedTwo && usable == arrangedUsable)
-            return;
-        bool modeChanged = !arranged || two != arrangedTwo;
-        arranged = true;
-        arrangedTwo = two;
-        arrangedUsable = usable;
-        ArrangeRuns++;
-        // The whole tree is held back, not just the two roots: every card and row below lays out again on each size it is given, and with
-        // only the roots suspended that was hundreds of nested passes (about 0.7 s) per window size.
-        Ui.Freeze(huntRoot);
-        var all = leftCards.Concat(rightCards).ToList();
-        // The cards only change columns when the window crosses between one and two columns; a plain width change keeps them where they are.
-        if (modeChanged)
-        {
-            foreach (var card in all)
-                card.Parent = null;
-            var primary = two ? leftCards : all;
-            foreach (var card in primary)
-                leftColumn.Controls.Add(card);
-            if (two)
-                foreach (var card in rightCards)
-                    rightColumn.Controls.Add(card);
-        }
-        huntColumns.ColumnStyles[0].SizeType = SizeType.Absolute;
-        huntColumns.ColumnStyles[0].Width = cardWidth;
-        huntColumns.ColumnStyles[1].SizeType = SizeType.Absolute;
-        huntColumns.ColumnStyles[1].Width = two ? cardWidth + gap : 0;
-        rightColumn.Visible = two;
-        rightColumn.Margin = new Padding(gap, 0, 0, 0);
-        foreach (var card in all)
-            card.MinimumSize = new Size(cardWidth, 0);
-        if (liveCard != null)
-            liveCard.MinimumSize = new Size(usable, 0);
-        int inner = cardWidth - 2 * Ui.Pad - 2, liveInner = usable - 2 * Ui.Pad - 2;
-        foreach (var row in huntRows)
-        {
-            var host = row.Parent == null ? null : row.Parent.Parent as CardBox;
-            row.MaximumSize = new Size(host == liveCard ? liveInner : inner, 0);
-        }
-        foreach (var control in huntStretch)
-        {
-            var host = control.Parent == null || control.Parent.Parent == null ? null : control.Parent.Parent.Parent as CardBox;
-            control.Width = host == liveCard ? liveInner : inner;
-        }
-        Ui.Thaw(huntRoot);
-        huntRoot.PerformLayout();
-    }
-
+    // The hunt settings are spread over three pages like phBot's: Istatistik (character and surroundings), Koruma (upkeep, returns, berserk)
+    // and Av Alani (targets, area, keys, shortcut).
     void BuildHunt()
     {
-        huntRoot = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(Ui.Pad) };
-        huntPanel.Controls.Add(huntRoot);
-        huntColumns = new TableLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ColumnCount = 2, RowCount = 1,
-            Margin = new Padding(0) };
-        huntColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 600));
-        huntColumns.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 600));
-        huntColumns.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        leftColumn = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
-            FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0), Dock = DockStyle.Top };
-        rightColumn = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, FlowDirection =
-            FlowDirection.TopDown, WrapContents = false, Margin = new Padding(0), Dock = DockStyle.Top };
-        huntColumns.Controls.Add(leftColumn, 0, 0);
-        huntColumns.Controls.Add(rightColumn, 1, 0);
-        huntRoot.Controls.Add(huntColumns);
-
-        // Left column: what to hunt and where
+        var statsFlow = TilePage(statsTab);
         BuildStatCard();
-        var card = Card("Hedefler");
+        var protectFlow = TilePage(protectTab);
+
+        // ---- Av Alani ----
+        TilePage(huntPanel);
+        var card = Card("Hedefler · saldırılacak yaratıklar", false, TileWidth);
         var row = Line(card);
         row.Controls.Add(Caption("Yaratık"));
         monsters.Width = 250;
         monsters.DropDownStyle = ComboBoxStyle.DropDownList;
         monsters.AutoCompleteSource = AutoCompleteSource.ListItems;
         monsters.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-        monsters.Margin = new Padding(0, 4, 8, 0);
+        monsters.Margin = new Padding(0, 2, 8, 0);
         monsters.Items.AddRange(names.Values.Distinct().OrderBy(n => n).Cast<object>().ToArray());
         row.Controls.Add(monsters);
         locked.Add(monsters);
         row.Controls.Add(Btn("+ Ekle", AddMob, 84, true, ButtonKind.Primary));
         row.Controls.Add(Btn("− Çıkar", RemoveMob, 84));
-        row.Controls.Add(Btn("Yakındaki isimler", Nearby, 150));
+        row.Controls.Add(Btn("Yakındaki isimler", Nearby, 130));
         row = Line(card);
-        row.Controls.Add(Stretch(Hint("Hedef listesi · saldırılacak yaratıklar")));
-        row = Line(card);
-        mobList.Height = 112;
+        mobList.Height = 150;
         mobList.BorderStyle = BorderStyle.FixedSingle;
         mobList.IntegralHeight = false;
         row.Controls.Add(Stretch(mobList));
         locked.Add(mobList);
-        card = Card("Av bölgesi");
+        card = Card("Av bölgesi", false, TileWidth);
         row = Line(card);
         Num(xBox, -25000, 23000, 0, 1, 112);
         Num(yBox, -17000, 6500, 0, 1, 112);
@@ -658,7 +477,7 @@ sealed partial class MemorySelectV3Form : Form
         row.Controls.Add(timeout);
         row = Line(card);
         row.Controls.Add(Stretch(Hint("Saldırılamayan hedef 10 sn sonra atlanır.")));
-        card = Card("Saldırı");
+        card = Card("Saldırı", false, TileWidth);
         row = Line(card);
         keys.Width = 220;
         keys.Text = "1 2 3 4 5 6";
@@ -675,30 +494,49 @@ sealed partial class MemorySelectV3Form : Form
         row = Line(card);
         ConfigureCheck(goHome, "Hedef yoksa / alan dışındaysa merkeze dön", true, 0);
         row.Controls.Add(goHome);
-
-        // Right column: control, maintenance, travel
-        card = Card("Kontrol", 1);
+        card = Card("Kontrol", false, TileWidth);
         row = Line(card);
         row.Controls.Add(Caption("Başlat / Durdur kısayolu"));
         shortcutLabel.AutoSize = false;
-        shortcutLabel.Size = new Size(120, 30);
+        shortcutLabel.Size = new Size(120, 26);
         shortcutLabel.TextAlign = ContentAlignment.MiddleCenter;
         shortcutLabel.BorderStyle = BorderStyle.FixedSingle;
         shortcutLabel.Text = "Atanmadı";
-        shortcutLabel.Margin = new Padding(0, 1, 10, 1);
+        shortcutLabel.Margin = new Padding(0, 2, 10, 1);
         row.Controls.Add(shortcutLabel);
-        row.Controls.Add(Btn("Tuş ata / değiştir", ChooseHotkey, 160));
-        card = Card("Otomatik bakım", 1);
+        row.Controls.Add(Btn("Tuş ata / değiştir", ChooseHotkey, 140));
+
+        // ---- Koruma ----
+        cardHost = protectFlow;
+        card = Card("Otomatik iksir", false, TileWidth);
+        row = Line(card);
+        ConfigureCheck(autoHpPotion, "HP düşünce iksir kullan", false, 0);
+        Num(hpPotionPercent, 1, 99, 50, 0, 70);
+        row.Controls.Add(autoHpPotion);
+        row.Controls.Add(hpPotionPercent);
+        row.Controls.Add(Caption("%"));
+        row = Line(card);
+        ConfigureCheck(autoMpPotion, "MP düşünce iksir kullan", false, 0);
+        Num(mpPotionPercent, 1, 99, 30, 0, 70);
+        row.Controls.Add(autoMpPotion);
+        row.Controls.Add(mpPotionPercent);
+        row.Controls.Add(Caption("%"));
+        row = Line(card);
+        var potionHint = Hint("Çantadaki ilk HP / MP iksiri (ya da tanesi) kullanılır; her tür için 1,5 sn bekleme. Oyunun makrosu da iksir basıyorsa ikisini birden açma.");
+        potionHint.Height = 40;
+        row.Controls.Add(Stretch(potionHint));
+        card = Card("Berserk", false, TileWidth);
         row = Line(card);
         ConfigureCheck(autoZerk, "Berserk 5/5 → Tab", true, 0);
         berserkClass.Width = 170;
         berserkClass.DropDownStyle = ComboBoxStyle.DropDownList;
         berserkClass.Items.AddRange(V2Rules.BerserkClasses);
         berserkClass.SelectedItem = "Giant";
-        berserkClass.Margin = new Padding(0, 4, 0, 1);
+        berserkClass.Margin = new Padding(0, 2, 0, 1);
         locked.Add(berserkClass);
         row.Controls.Add(autoZerk);
         row.Controls.Add(berserkClass);
+        card = Card("Otomatik bakım", false, TileWidth);
         row = Line(card);
         ConfigureCheck(autoSpeed, "Hızlı Koşma Taşı Kullan %100", true, 0);
         row.Controls.Add(autoSpeed);
@@ -711,50 +549,68 @@ sealed partial class MemorySelectV3Form : Form
             transaction.Reset();
             maintenance.Text = transaction.Message;
         }, 220));
+        card = Card("Ölüm ve dönüş", false, TileWidth);
         row = Line(card);
         ConfigureCheck(autoRecovery, "Ölümde şehre dön + Reverse", true, 0);
         row.Controls.Add(autoRecovery);
         row = Line(card);
         Num(reviveSeconds, 0, 3600, 30);
-        Num(deathLimit, 1, 1000, 5);
         row.Controls.Add(Caption("Bekle (sn)"));
         row.Controls.Add(reviveSeconds);
-        row.Controls.Add(Caption("Ölüm sınırı"));
-        row.Controls.Add(deathLimit);
         row = Line(card);
-        deathsLabel.AutoSize = false;
-        deathsLabel.Size = new Size(230, 30);
-        deathsLabel.TextAlign = ContentAlignment.MiddleLeft;
-        deathsLabel.Margin = new Padding(0, 0, 8, 6);
-        row.Controls.Add(deathsLabel);
-        row.Controls.Add(Btn("Ölüm sayacını sıfırla", delegate
-        {
-            recovery.ResetCount();
-            SaveSettings();
-            UpdateDisplay();
-        }, 190));
+        recoveryLabel.AutoSize = false;
+        recoveryLabel.Size = new Size(230, 26);
+        recoveryLabel.TextAlign = ContentAlignment.MiddleLeft;
+        recoveryLabel.Margin = new Padding(0, 0, 8, 6);
+        row.Controls.Add(recoveryLabel);
+        card = Card("Uyarılar", false, TileWidth);
         row = Line(card);
-        ConfigureCheck(uniqueAlertBox, "Yakında unique canavar çıkınca sesle uyar", false, 0);
+        ConfigureCheck(uniqueAlertBox, "Unique canavar çıkınca sesle uyar", false, 0);
         row.Controls.Add(uniqueAlertBox);
-        card = Card("Yolculuk", 1);
         row = Line(card);
-        ConfigureCheck(travelMount, "Dungeon’a giderken ata bin · Oyundaki aktif mount", false, 0);
+        ConfigureCheck(notifyDone, "İş bitince bildirim ver", true, 0);
+        row.Controls.Add(notifyDone);
+        card = Card("Yolculuk", false, TileWidth);
+        row = Line(card);
+        ConfigureCheck(travelMount, "Dungeon’a giderken ata bin", false, 0);
         row.Controls.Add(travelMount);
         row = Line(card);
-        ConfigureCheck(backgroundWalk, "Yürüyüş işleri arka planda da çalışsın (Explorer, kervan, dungeon yolu)", true, 0);
+        ConfigureCheck(backgroundWalk, "Yürüyüş işleri arka planda da çalışsın", true, 0);
         row.Controls.Add(backgroundWalk);
         row = Line(card);
-        ConfigureCheck(notifyDone, "İş bitince bildirim ver (ses, balon, görev çubuğu)", true, 0);
-        row.Controls.Add(notifyDone);
-        row = Line(card);
-        ConfigureCheck(returnBeforeTravel, "Farklı bölgeye giderken önce Return Scroll kullan · İsteğe bağlı", false, 0);
+        ConfigureCheck(returnBeforeTravel, "Farklı bölgeye giderken önce Return Scroll", false, 0);
         row.Controls.Add(returnBeforeTravel);
+        row = Line(card);
+        ConfigureCheck(useReverseTravel, "Uzaksa dungeon'a en yakın Reverse noktasına git (Reverse Scroll)", true, 0);
+        row.Controls.Add(useReverseTravel);
+        card = Card("Oyun penceresi", false, TileWidth);
+        row = Line(card);
+        displayState = Hint("", cardInner);
+        displayState.Height = 58;
+        row.Controls.Add(displayState);
+        row = Line(card);
+        row.Controls.Add(Btn("Arka planda çizimi aç", delegate { EnableBackgroundRender(); }, 190, false));
+        row = Line(card);
+        ConfigureCheck(autoWake, "Çizim donarsa otomatik canlandır", true, 0);
+        row.Controls.Add(autoWake);
+        row = Line(card);
+        ConfigureCheck(autoResume, "Oyun kapanırsa yeni oyuna bağlan, işe devam et", false, 0);
+        row.Controls.Add(autoResume);
+        var resumeHint = Hint("Oyunu launcher'ın AutoLogin'i yeniden açar; bot aynı karakteri bulunca bağlanır. Av ve kervan yolu devam eder, şifre girilmez.", cardInner);
+        resumeHint.Height = 40;
+        row.Controls.Add(resumeHint);
+        row = Line(card);
+        row.Controls.Add(Btn("Oyunu canlandır", delegate { SetClientVisibility(true); }, 150, false));
+        var wakeHint = Hint("Görüntü donarsa (karakter ilerler, ekran aynı kalır) pencereyi küçültüp açar.", cardInner);
+        wakeHint.Height = 40;
+        row.Controls.Add(wakeHint);
 
-        // Full width: live view of the monsters in range
-        card = Card("Canlı durum", 2);
+        // ---- Istatistik, second sub-page: the monsters in range ----
+        cardHost = statsFlow;
+        card = Card("Çevre · canlı durum", true);
         row = Line(card);
         details.AutoSize = false;
-        details.Height = 30;
+        details.Height = 26;
         details.TextAlign = ContentAlignment.MiddleLeft;
         row.Controls.Add(Stretch(details));
         grid.Height = 210;
@@ -769,20 +625,12 @@ sealed partial class MemorySelectV3Form : Form
         row = Line(card);
         row.Controls.Add(Stretch(grid));
         maintenance.AutoSize = false;
-        maintenance.Height = 32;
+        maintenance.Height = 28;
         maintenance.TextAlign = ContentAlignment.MiddleLeft;
         maintenance.Tag = "muted";
         maintenance.Text = transaction.Message;
         row = Line(card);
         row.Controls.Add(Stretch(maintenance));
-        huntRoot.Controls.Add(liveCard);
-        huntPanel.SizeChanged += delegate { ArrangeHunt(); };
-        huntPanel.MouseEnter += delegate
-        {
-            if (!(ActiveControl is TextBoxBase) && !(ActiveControl is NumericUpDown) && !(ActiveControl is ComboBox))
-                huntPanel.Focus();
-        };
-        ArrangeHunt();
     }
 
     void AddMob()
@@ -813,14 +661,24 @@ sealed partial class MemorySelectV3Form : Form
     void Log(string text)
     {
         string line = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + " · " + text;
-        eventLog.AppendLine(line);
+        lock (eventLog)
+        {
+            eventLog.AppendLine(line);
+            try
+            {
+                LogFiles.Append(LogFiles.EventLogPath, line, LogFiles.MaxFileBytes);
+            }
+            catch { }
+        }
         try
         {
-            Directory.CreateDirectory(V3Settings.DirectoryPath);
-            File.AppendAllText(Path.Combine(V3Settings.DirectoryPath, "events.log"), line + Environment.NewLine,
-                Encoding.UTF8);
+            string shown = DateTime.Now.ToString("[HH:mm:ss] ") + text.Split('\n')[0].TrimEnd('\r');
+            if (InvokeRequired)
+                BeginInvoke(new Action<string>(AppendLiveLog), shown);
+            else
+                AppendLiveLog(shown);
         }
-        catch { }
+        catch (InvalidOperationException) { }
     }
 
     void RestoreSettings()
@@ -833,11 +691,15 @@ sealed partial class MemorySelectV3Form : Form
             if (!string.IsNullOrWhiteSpace(name) && selectedMobs.Add(name))
                 mobList.Items.Add(name);
         returnBeforeTravel.Checked = settings.ReturnBeforeTravel;
+        useReverseTravel.Checked = settings.UseReverseTravel;
         travelMount.Checked = settings.TravelMount;
         backgroundWalk.Checked = settings.BackgroundWalk;
         notifyDone.Checked = settings.NotifyDone;
+        autoWake.Checked = settings.AutoWake;
+        autoResume.Checked = settings.AutoResume;
         uniqueAlertBox.Checked = settings.UniqueAlert;
         autoEnterGrim.Checked = settings.AutoEnterGrim;
+        exitAfterGrim.Checked = settings.GrimAutoExit;
         if (settings.ExplorerDone == null)
             settings.ExplorerDone = new List<int>();
         explorerSyncing = true;
@@ -846,6 +708,17 @@ sealed partial class MemorySelectV3Form : Form
             explorerSkipDone.Checked = settings.ExplorerSkipDone;
             SetValue(explorerModel, settings.ExplorerModel);
             explorerTalk.Checked = settings.ExplorerTalk;
+            explorerReturn.Checked = settings.ExplorerReturnBetween;
+            collectNpcs.Checked = settings.NanzhangCollect;
+            autoHpPotion.Checked = settings.AutoHpPotion;
+            autoMpPotion.Checked = settings.AutoMpPotion;
+            SetValue(hpPotionPercent, settings.HpPotionPercent < 1 ? 50 : settings.HpPotionPercent);
+            SetValue(mpPotionPercent, settings.MpPotionPercent < 1 ? 30 : settings.MpPotionPercent);
+            if (settings.ExplorerTalkOptionRevision < 1)
+            {
+                settings.ExplorerTalkOption = 1;
+                settings.ExplorerTalkOptionRevision = 1;
+            }
             SetValue(explorerOption, settings.ExplorerTalkOption < 1 ? 1 : settings.ExplorerTalkOption);
         }
         finally
@@ -859,7 +732,6 @@ sealed partial class MemorySelectV3Form : Form
         SetValue(timeout, settings.Timeout == 15 ? 10 : settings.Timeout);
         SetValue(delay, settings.Delay);
         SetValue(reviveSeconds, settings.ReviveSeconds);
-        SetValue(deathLimit, settings.DeathLimit);
         keys.Text = settings.Keys ?? "1";
         berserkClass.SelectedItem = V2Rules.BerserkClasses.Contains(settings.BerserkClass) ? settings.BerserkClass :
             "Giant";
@@ -869,8 +741,7 @@ sealed partial class MemorySelectV3Form : Form
         autoSpeed.Checked = settings.Speed;
         autoRepair.Checked = settings.Repair;
         autoRecovery.Checked = settings.Recovery;
-        recovery.Deaths = Math.Max(0, settings.Deaths);
-        deathsLabel.Text = "Ölüm sayısı: " + recovery.Deaths + " / " + deathLimit.Value;
+        recoveryLabel.Text = "Kurtarma: " + recovery.Phase;
     }
 
     static void SetValue(NumericUpDown n, double v)
@@ -884,18 +755,30 @@ sealed partial class MemorySelectV3Form : Form
     {
         if (settings == null)
             return;
-        settings.DungeonQueue = queue.Select(item => item.Code).ToList();
+        settings.DungeonQueue = queue.Select(item => item.QueueKey).ToList();
         settings.QueueReturnScroll = queueReturnScroll.Checked;
         settings.ReturnBeforeTravel = returnBeforeTravel.Checked;
+        settings.UseReverseTravel = useReverseTravel.Checked;
         settings.TravelMount = travelMount.Checked;
         settings.BackgroundWalk = backgroundWalk.Checked;
         settings.NotifyDone = notifyDone.Checked;
+        settings.AutoWake = autoWake.Checked;
+        settings.AutoResume = autoResume.Checked;
+        if (lotteryReady)
+            SaveLotterySettings();
         settings.UniqueAlert = uniqueAlertBox.Checked;
         SaveSkillSettings(settings);
         settings.AutoEnterGrim = autoEnterGrim.Checked;
+        settings.GrimAutoExit = exitAfterGrim.Checked;
         settings.ExplorerSkipDone = explorerSkipDone.Checked;
         settings.ExplorerModel = (int)explorerModel.Value;
+        settings.NanzhangCollect = collectNpcs.Checked;
+        settings.AutoHpPotion = autoHpPotion.Checked;
+        settings.AutoMpPotion = autoMpPotion.Checked;
+        settings.HpPotionPercent = (int)hpPotionPercent.Value;
+        settings.MpPotionPercent = (int)mpPotionPercent.Value;
         settings.ExplorerTalk = explorerTalk.Checked;
+        settings.ExplorerReturnBetween = explorerReturn.Checked;
         settings.ExplorerTalkOption = (int)explorerOption.Value;
         settings.VisitedDungeons = visitedDungeons.OrderBy(id => id).ToList();
         settings.Mobs = selectedMobs.OrderBy(x => x).ToList();
@@ -905,8 +788,6 @@ sealed partial class MemorySelectV3Form : Form
         settings.Timeout = (int)timeout.Value;
         settings.Delay = (int)delay.Value;
         settings.ReviveSeconds = (int)reviveSeconds.Value;
-        settings.DeathLimit = (int)deathLimit.Value;
-        settings.Deaths = recovery.Deaths;
         settings.Keys = keys.Text;
         settings.BerserkClass = berserkClass.SelectedItem as string;
         settings.SendKeys = sendKeys.Checked;
@@ -920,17 +801,19 @@ sealed partial class MemorySelectV3Form : Form
         settings.HotkeyKey = shortcutKey;
         settings.HotkeyModifiers = shortcutMods;
         settings.Save();
+        if (savedLabel != null)
+            savedLabel.Text = "Kaydedildi " + DateTime.Now.ToString("HH:mm");
     }
 
     void BuildGrim(TabPage outerPage)
     {
         var page = outerPage;
         page.AutoScroll = true;
-        page.AutoScrollMinSize = new Size(960, 720);
+        page.AutoScrollMinSize = new Size(860, 640);
         // Row 1: difficulty chips on the left, the walk button on the right.
         var toolbar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(Ui.Pad, 12, Ui.Pad, 2) };
-        foreach (string modeName in new[] { "Novice", "Expert", "Master", "Solo Trial" })
+        foreach (string modeName in new[] { "Novice", "Expert", "Master", "Solo Trial", DungeonLocation.Solo85 })
         {
             var chip = new ChipBox { Text = modeName, Checked = modeName == "Solo Trial" };
             grimModes.Add(chip);
@@ -944,42 +827,48 @@ sealed partial class MemorySelectV3Form : Form
         // Row 2: the auto-enter switch and the one-line beta note.
         var options = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink,
             Padding = new Padding(Ui.Pad, 2, Ui.Pad, 6) };
-        autoEnterGrim.Text = "Girişe varınca Solo Trial’a gir ve otomatik avlan";
+        autoEnterGrim.Text = "Girişe varınca Solo’ya gir ve otomatik avlan";
         autoEnterGrim.AutoSize = true;
         autoEnterGrim.Margin = new Padding(0, 6, 24, 0);
         locked.Add(autoEnterGrim);
         options.Controls.Add(autoEnterGrim);
-        var grimNote = new Label { Text = "Beta · 72/72 canlı bitiriş testi henüz yapılmadı", AutoSize = true, Tag = "warn",
+        exitAfterGrim.Text = "Bitince Dungeon Exit ile çık";
+        exitAfterGrim.AutoSize = true;
+        exitAfterGrim.Margin = new Padding(0, 6, 24, 0);
+        exitAfterGrim.CheckedChanged += delegate { SaveSettingsQuietly(); };
+        locked.Add(exitAfterGrim);
+        options.Controls.Add(exitAfterGrim);
+        var grimNote = new Label { Text = "Beta · canlı bitiriş testi henüz yapılmadı · Solo 85: seviye 85 gerekir", AutoSize = true, Tag = "warn",
             Margin = new Padding(0, 7, 0, 0) };
         options.Controls.Add(grimNote);
-        // Two separate parts, one above the other: the dungeon list with the run order on top, the three views (picture, live inside
-        // view, world map) across the whole width below.
+        // Two parts, one above the other: the dungeon list with the run order on top, the picture and the card of the chosen dungeon below.
         var split = new SplitContainer { Size = new Size(1200, 700), Dock = DockStyle.Fill, Orientation = Orientation.Horizontal,
-            FixedPanel = FixedPanel.Panel1, SplitterDistance = 310, SplitterWidth = 6 };
-        split.Panel1MinSize = 220;
-        split.Panel2MinSize = 260;
+            FixedPanel = FixedPanel.Panel1, SplitterDistance = 270, SplitterWidth = 6 };
+        split.Panel1MinSize = 200;
+        split.Panel2MinSize = 224;
         split.Panel1.Padding = new Padding(Ui.Pad, 0, Ui.Pad, 4);
         split.Panel2.Padding = new Padding(Ui.Pad, 4, Ui.Pad, Ui.Pad);
         dungeonGrid.Dock = DockStyle.Fill;
         dungeonGrid.ReadOnly = false;
         dungeonGrid.AllowUserToAddRows = false;
         dungeonGrid.RowHeadersVisible = false;
-        dungeonGrid.MultiSelect = false;
+        dungeonGrid.MultiSelect = true;
         dungeonGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
         dungeonGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
         var visitedColumn = new DataGridViewCheckBoxColumn { Name = "Visited", HeaderText = "Girdim", FillWeight = 48 };
         dungeonGrid.Columns.Add(visitedColumn);
         foreach (string c in new[] { "Kod", "Bölge / Dungeon", "Şehir", "Mod", "Giriş X", "Giriş Y", "Instance",
-            "İç rota" })
+            "İç rota", "Rota" })
         {
             int column = dungeonGrid.Columns.Add(c, c);
             var col = dungeonGrid.Columns[column];
             col.ReadOnly = true;
-            col.Width = c == "Şehir" ? 150 : c == "Kod" ? 52 : 90;
+            col.Width = c == "Şehir" ? 150 : c == "Kod" ? 52 : c == "Rota" ? 230 : 90;
             // Coordinates, instance id and route note stay in the data (queue and walker read them) but not on screen.
             if (c == "Giriş X" || c == "Giriş Y" || c == "Instance" || c == "İç rota")
                 col.Visible = false;
         }
+        dungeonGrid.Columns["Rota"].DisplayIndex = 5;
         dungeonGrid.Columns["Bölge / Dungeon"].AutoSizeMode = DataGridViewAutoSizeColumnMode.Fill;
         dungeonGrid.Columns["Bölge / Dungeon"].MinimumWidth = 150;
         visitedColumn.Width = 72;
@@ -1002,8 +891,9 @@ sealed partial class MemorySelectV3Form : Form
                 visitedDungeons.Add(id);
             else
                 visitedDungeons.Remove(id);
-            row.DefaultCellStyle.BackColor = visitedDungeons.Contains(id) ? Ui.SuccessTint : dungeonGrid.DefaultCellStyle.BackColor;
+            StyleDungeonRow(row, visitedDungeons.Contains(id));
             SaveSettings();
+            RefreshDungeonDetails();
         };
         dungeonGrid.SelectionChanged += delegate
         {
@@ -1023,25 +913,7 @@ sealed partial class MemorySelectV3Form : Form
         gridHost.Controls.Add(gridCount);
         split.Panel1.Controls.Add(gridHost);
         BuildQueuePanel(split.Panel1);
-        grimViews.Dock = DockStyle.Fill;
-        grimViews.Appearance = TabAppearance.FlatButtons;
-        grimViews.SizeMode = TabSizeMode.Fixed;
-        grimViews.ItemSize = new Size(1, 1);
-        var visual = new TabPage("Dungeon görseli");
-        dungeonView.Dock = DockStyle.Fill;
-        visual.Controls.Add(dungeonView);
-        var live = new TabPage("Canlı iç görünüm");
-        live.Controls.Add(dungeonRadar);
-        grimViews.TabPages.AddRange(new[] { visual, live });
-        grimViews.SelectedIndexChanged += delegate
-        {
-            if (grimViews.SelectedIndex == 0)
-                dungeonView.Fit();
-        };
-        var mapHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(1), Tag = "border" };
-        mapHost.Controls.Add(grimViews);
-        mapHost.Controls.Add(new TabStrip(grimViews));
-        split.Panel2.Controls.Add(mapHost);
+        BuildGrimBottom(split.Panel2);
         grimStatus.Dock = DockStyle.Bottom;
         grimStatus.Height = 36;
         grimStatus.Font = Ui.Small;
@@ -1051,11 +923,11 @@ sealed partial class MemorySelectV3Form : Form
         grimStatus.Text = "Dungeon seç. Otomatik giriş açıksa Solo Trial’a girer; kapalıysa girişte bekler.";
         page.Controls.Add(split);
         page.Controls.Add(grimStatus);
+        BuildLearnTools(page);
         page.Controls.Add(options);
         page.Controls.Add(toolbar);
-        BuildWorldMap();
         RefreshDungeonGrid();
-        dungeonView.LoadResource("Grim.D01.jpg");
+        dungeonShot.LoadResource("Grim.D01.jpg");
     }
 
     void RefreshDungeonGrid()
@@ -1067,11 +939,12 @@ sealed partial class MemorySelectV3Form : Form
             foreach (var d in V3Data.Dungeons.Where(d => grimModes.Any(c => c.Checked && c.Text == d.Mode)))
             {
                 bool visited = visitedDungeons.Contains(d.Code + "|" + d.Mode);
+                string text;
                 int r = dungeonGrid.Rows.Add(visited, d.Code, d.Name, d.Area, d.Mode, d.X.ToString("F1"), d.Y.ToString("F1"),
-                    d.InstanceId, d.Mode == "Solo Trial" ? "Kayıtlı harita · alan kontrolü" :
-                    "Canlı tarama · alan kontrolü");
+                    d.InstanceId, d.IsSolo ? "Kayıtlı harita · alan kontrolü" :
+                    "Canlı tarama · alan kontrolü", routeSummaries == null ? "…" : routeSummaries.TryGetValue(d.Code, out text) ? text : "—");
                 dungeonGrid.Rows[r].Tag = d;
-                dungeonGrid.Rows[r].DefaultCellStyle.BackColor = visited ? Ui.SuccessTint : dungeonGrid.DefaultCellStyle.BackColor;
+                StyleDungeonRow(dungeonGrid.Rows[r], visited);
             }
         }
         finally
@@ -1084,20 +957,24 @@ sealed partial class MemorySelectV3Form : Form
         }
     }
 
+    // Not entered yet: white. Entered: yellow (also while the row is selected).
+    static void StyleDungeonRow(DataGridViewRow row, bool visited)
+    {
+        row.DefaultCellStyle.ForeColor = visited ? Ui.Done : Ui.Fresh;
+        row.DefaultCellStyle.SelectionForeColor = visited ? Ui.Done : Ui.Fresh;
+    }
+
     void ShowDungeonImage(DungeonLocation d)
     {
-        dungeonRadar.Preview = d;
-        dungeonRadar.Invalidate();
-        dungeonView.LoadResource("Grim." + d.Code + ".jpg");
-        if (grimViews.SelectedTab != worldTab)
-            grimViews.SelectedIndex = 0;
-        dungeonView.Fit();
-        SyncWorldMap();
+        dungeonShot.LoadResource("Grim." + d.Code + ".jpg");
+        RefreshDungeonDetails();
     }
 
     DungeonLocation SelectedDungeon()
     {
-        var row = dungeonGrid.SelectedRows.Count > 0 ? dungeonGrid.SelectedRows[0] : dungeonGrid.CurrentRow;
+        // the one chosen row (the selection event arrives before the current row follows); with several chosen, the row with the focus
+        var chosen = dungeonGrid.SelectedRows;
+        var row = chosen.Count == 1 ? chosen[0] : dungeonGrid.CurrentRow ?? (chosen.Count > 0 ? chosen[0] : null);
         return row == null ? null : row.Tag as DungeonLocation;
     }
 

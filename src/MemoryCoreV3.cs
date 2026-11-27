@@ -131,6 +131,15 @@ sealed class Monster
     public bool Party;
 }
 
+// Another character in the client's object list (a party member, a passer-by): its id, name, place and whether it is alive.
+sealed class WorldPlayer
+{
+    public uint Uid, Address;
+    public string Name;
+    public Position Position;
+    public bool Alive;
+}
+
 sealed class Snapshot
 {
     public string CharacterName;
@@ -139,6 +148,7 @@ sealed class Snapshot
     // The model of the animal being ridden (read from the world object list), 0 when on foot or not found.
     public uint MountModel;
     public List<WorldNpc> Npcs = new List<WorldNpc>();
+    public List<WorldPlayer> Players = new List<WorldPlayer>();
     public Position Player;
     public uint Selected;
     public GrimObservation Grim = new GrimObservation();
@@ -149,12 +159,21 @@ sealed class Snapshot
     public ulong Exp;
     public int Berserk = -1;
     public bool SpeedKnown, SpeedActive, InventoryKnown;
+    // The model of the weapon in hand (equipment slot 6; 0 = none) and the weapons in the bag as (slot, model).
+    public uint WeaponModel;
+    public readonly List<KeyValuePair<int, uint>> BagWeapons = new List<KeyValuePair<int, uint>>();
     // Skill ids of the buffs the character carries right now; BuffsKnown is false when the list could not be read cleanly.
     public bool BuffsKnown;
     public HashSet<uint> Buffs = new HashSet<uint>();
     public int? MinDurability;
     public List<BagItem> Items = new List<BagItem>();
     public List<Monster> Monsters = new List<Monster>();
+}
+
+sealed class BagEntry
+{
+    public int Slot;
+    public uint Model, Quantity, Address;
 }
 
 // One known build of GuardyNE.dll: the file hash, the PE time stamp and image size read back from the loaded copy, and the offsets (from the
@@ -174,7 +193,16 @@ sealed class GuardBuild
         // update rev 34 (2026-11-18): offsets found by matching the old functions' code in the new DLL
         new GuardBuild { Label = "rev 34", Hash = "62F212E6B775501CECB81C8AFE83292DA20BAA62645D662E65CD1E251AED660D", Stamp = 0x6afa04fb, ImageSize = 0x1a12000,
             Sender = 0xF92F, Move = 0x844A10, Reverse = 0x842000, Navigation = 0x76D8D0, MountUid = 0xd7c720, GrimText = 0xc28070,
-            MountDown = 0x495B10, MountUp = 0x495A30 }
+            MountDown = 0x495B10, MountUp = 0x495A30 },
+        // update rev 35 (2026-11-18, 20:50): found the same way, by matching the code of the 04.11 functions
+        new GuardBuild { Label = "rev 35", Hash = "CD836FA7AFF65778667D25062BEBD6B66A78402CD5DA400415A6236E7CF28C7B", Stamp = 0x6afdb7a6, ImageSize = 0x1a18000,
+            Sender = 0xF95C, Move = 0x849240, Reverse = 0x846830, Navigation = 0x7720B0, MountUid = 0xd81950, GrimText = 0xc2d070,
+            MountDown = 0x499950, MountUp = 0x499870 },
+        // update of 2026-11-26 (patch of the night before): found the same way, by matching the code of the 04.11 functions; the send function
+        // by its first instructions (size check 0xfa0, opcode 0x7005) and its thunk
+        new GuardBuild { Label = "rev 36", Hash = "D0F66E9659CEEA0E8C39326522D5A7443A2E328D66C1E6C7D8C107B780E874DB", Stamp = 0x6b06585f, ImageSize = 0x1b29000,
+            Sender = 0x106BD, Move = 0x8ECF30, Reverse = 0x8EA3E0, Navigation = 0x811D70, MountUid = 0xE63470, GrimText = 0xD03A00,
+            MountDown = 0x517E90, MountUp = 0x517DB0 }
     };
 
     internal static GuardBuild ByHash(string hash)
@@ -190,6 +218,8 @@ sealed class GameReader : IDisposable
     readonly uint baseAddress;
     readonly long started;
     internal readonly Process Process;
+    // The folder of the game's program (its "logs" folder holds client.log and crash.log).
+    internal readonly string GameDirectory;
     internal uint SenderAddress, GuardBase, MoveAddress, ReverseAddress, NavigationAddress;
     internal GuardBuild Guard;
     internal string Compatibility = "DLL bağlantısı yok";
@@ -202,6 +232,22 @@ sealed class GameReader : IDisposable
                 return BitConverter.ToString(hash.ComputeHash(stream)).Replace("-", "");
     }
 
+    // The hash of the game's program with the "large address aware" flag taken out. The launcher's memory option (config/memory.ini, 4 GB) sets that one
+    // bit in the program's header before the game starts and changes nothing else (checked: with the bit cleared the hash is the shipped one), so
+    // the addresses the bot uses are the same in both modes.
+    internal static string ClientHashIgnoringLargeAddress(byte[] image)
+    {
+        var copy = (byte[])image.Clone();
+        if (copy.Length > 0x100 && copy[0] == 'M' && copy[1] == 'Z')
+        {
+            int pe = BitConverter.ToInt32(copy, 0x3c);
+            if (pe > 0 && pe + 0x18 < copy.Length && copy[pe] == 'P' && copy[pe + 1] == 'E')
+                copy[pe + 0x16] &= 0xDF;
+        }
+        using (var hash = SHA256.Create())
+            return BitConverter.ToString(hash.ComputeHash(copy)).Replace("-", "");
+    }
+
     internal GameReader(int pid, Dictionary<uint, string> names)
     {
         Names = names;
@@ -209,8 +255,9 @@ sealed class GameReader : IDisposable
         started = Process.StartTime.ToUniversalTime().Ticks;
         if (!string.Equals(Process.ProcessName, "sro_client", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("Hedef sro_client değil.");
-        if (Hash(Process.MainModule.FileName) != ClientHash)
+        if (ClientHashIgnoringLargeAddress(File.ReadAllBytes(Process.MainModule.FileName)) != ClientHash)
             throw new InvalidOperationException("İstemci sürümü değişmiş. Adresler yeniden doğrulanmalı.");
+        GameDirectory = Path.GetDirectoryName(Process.MainModule.FileName);
         baseAddress = Native.Addr(Process.MainModule.BaseAddress);
         handle = Native.OpenProcess(0x1010, false, pid);
         if (handle == IntPtr.Zero)
@@ -251,11 +298,53 @@ sealed class GameReader : IDisposable
             GuardBase = 0;
             Compatibility = e.Message;
         }
+        RemoteJournal.Default.Marker(DateTime.Now, pid, "attach");
+        StabilityLog.Write("Oyuna bağlanıldı · PID " + pid + " · " + Compatibility);
     }
 
     internal IntPtr Handle
     {
         get { return handle; }
+    }
+
+    // Every item in the bag, any item: slot (13 and up), model and quantity.
+    internal List<BagEntry> ReadBag()
+    {
+        var list = new List<BagEntry>();
+        uint ui = Global(0xd0f80c), irm = ui + 0x36c;
+        uint inv = FindTree(U32(irm + 4), 25 + U32(irm + 44));
+        if (inv == 0)
+            throw new IOException("Envanter yok.");
+        uint bag = U32(inv + 0x7bc), begin = U32(bag + 0x3a0), end = U32(bag + 0x3a4);
+        if (end < begin || (end - begin) % 4 != 0 || (end - begin) / 4 > 200)
+            throw new IOException("Envanter değişti.");
+        for (uint i = 0; i < (end - begin) / 4; i++)
+        {
+            uint obj = U32(begin + i * 4);
+            if (obj < 65536)
+                continue;
+            byte[] b = Read(obj, 0xa0);
+            if (b[0x28] == 0)
+                continue;
+            list.Add(new BagEntry { Slot = (int)i + 13, Model = BitConverter.ToUInt32(b, 0x34), Quantity = BitConverter.ToUInt32(b, 0x9c), Address = obj });
+        }
+        return list;
+    }
+
+    // The gold in the bag: a 64-bit number in the bag object (found by scanning for a known amount: 40838830 sat at bag+0x378).
+    internal ulong ReadGold()
+    {
+        uint ui = Global(0xd0f80c), irm = ui + 0x36c;
+        uint inv = FindTree(U32(irm + 4), 25 + U32(irm + 44));
+        if (inv == 0)
+            throw new IOException("Envanter yok.");
+        uint bag = U32(inv + 0x7bc);
+        if (bag < 65536)
+            throw new IOException("Envanter yok.");
+        ulong gold = BitConverter.ToUInt64(Read(bag + 0x378, 8), 0);
+        if (gold > 10000000000000UL)
+            throw new IOException("Altın değeri okunamadı.");
+        return gold;
     }
 
     internal byte[] Read(uint address, int size)
@@ -272,7 +361,7 @@ sealed class GameReader : IDisposable
         return BitConverter.ToUInt32(Read(address, 4), 0);
     }
 
-    uint Global(uint offset)
+    internal uint Global(uint offset)
     {
         return U32(baseAddress + offset);
     }
@@ -322,6 +411,10 @@ sealed class GameReader : IDisposable
         catch (IOException) { }
     }
 
+    // How many objects of each type the last read found (for finding out what a kind of object looks like).
+    internal readonly Dictionary<ushort, int> SeenTypes = new Dictionary<ushort, int>();
+    internal ushort OwnType;
+
     internal Snapshot Capture()
     {
         Process.Refresh();
@@ -366,6 +459,17 @@ sealed class GameReader : IDisposable
         uint root = Global(0xAEF5FC);
         if (root < 65536)
             throw new IOException("Nesne listesi bulunamadı.");
+        // Other characters have the same object type as the player's own.
+        ushort playerType = 0;
+        try
+        {
+            uint own = U32(player + 0x220);
+            if (own >= 65536)
+                playerType = BitConverter.ToUInt16(Read(own, 8), 0);
+            OwnType = playerType;
+        }
+        catch (IOException) { }
+        SeenTypes.Clear();
         var stack = new Stack<uint>();
         var seen = new HashSet<uint>();
         stack.Push(U32(root + 4));
@@ -392,6 +496,18 @@ sealed class GameReader : IDisposable
                 uint model = BitConverter.ToUInt32(r, 4);
                 if (snap.MountUid != 0 && uid == snap.MountUid)
                     snap.MountModel = model;
+                int typeCount;
+                SeenTypes[type] = SeenTypes.TryGetValue(type, out typeCount) ? typeCount + 1 : 1;
+                if (playerType != 0 && IsPlayerType(type, playerType))
+                {
+                    try
+                    {
+                        string who = ReadWideString(obj + 0x114);
+                        snap.Players.Add(new WorldPlayer { Uid = uid, Address = obj, Name = who, Position = ReadPosition(obj), Alive = (U32(obj + 0x65c) & 1) != 0 });
+                    }
+                    catch (IOException) { }
+                    continue;
+                }
                 // Every NPC is listed (traders, Explorer, gates): TypeID1 1, TypeID2 2, TypeID3 2 in the client's object type.
                 if (IsNpcType(type) || model == 36031 || model == 36032 || ExpeditionRules.Network.Gates.Any(g => g.Model == (int)model))
                 {
@@ -431,6 +547,12 @@ sealed class GameReader : IDisposable
         if (Global(0xAEF5EC) != player || Global(0xAEF5FC) != root)
             throw new IOException("Dünya değişti; yeniden okunacak.");
         return snap;
+    }
+
+    // A character (the player's own kind of object): the same object class as the player's own type, whichever race it is.
+    internal static bool IsPlayerType(ushort type, ushort own)
+    {
+        return type == own || ((type & 0x1c) == 4 && (type & 0x60) == 0x20 && (own & 0x1c) == 4 && (own & 0x60) == 0x20);
     }
 
     internal static bool IsNpcType(ushort type)
@@ -598,6 +720,8 @@ sealed class GameReader : IDisposable
                 if (b[0x28] == 0)
                     continue;
                 uint id = BitConverter.ToUInt32(b, 0x34);
+                if (WeaponRules.TypeOf(id) != 0)
+                    snap.BagWeapons.Add(new KeyValuePair<int, uint>((int)i + 13, id));
                 if (!V2Rules.ItemIds.Contains(id) && !RecoveryRules.ReverseIds.Contains(id) && !ExpeditionRules.ReturnIds.Contains(id))
                     continue;
                 var item = new BagItem { Model = id, Slot = (int)i + 13, Quantity = BitConverter.ToUInt32(b, 0x9c),
@@ -613,6 +737,8 @@ sealed class GameReader : IDisposable
                 byte[] b = Read(equip + 0xf10 + slot * 0x1d0, 0xf8);
                 if (b[0x28] == 0 || BitConverter.ToInt32(b, 0xf4) <= 0)
                     continue;
+                if (slot == WeaponRules.WeaponSlot)
+                    snap.WeaponModel = BitConverter.ToUInt32(b, 0x34);
                 int dur = BitConverter.ToInt32(b, 0x98);
                 if (dur < 0)
                     dur = 0;
@@ -623,9 +749,48 @@ sealed class GameReader : IDisposable
         catch (IOException)
         {
             snap.InventoryKnown = false;
+            snap.BagWeapons.Clear();
             snap.Items.Clear();
             snap.MinDurability = null;
         }
+    }
+
+    // Every item of the character: the equipped ones (slots 0-12; the weapon is 6) and the bag (slot 13 and up) by item model. Empty bag slots
+    // are listed in `emptyBagSlots`. Throws IOException when the inventory cannot be read.
+    internal Dictionary<int, uint> InventoryModels(out List<int> emptyBagSlots)
+    {
+        var models = new Dictionary<int, uint>();
+        emptyBagSlots = new List<int>();
+        uint ui = Global(0xd0f80c);
+        uint irm = ui + 0x36c;
+        uint inv = FindTree(U32(irm + 4), 25 + U32(irm + 44));
+        if (inv == 0)
+            throw new IOException("Envanter yok.");
+        uint bag = U32(inv + 0x7bc), begin = U32(bag + 0x3a0), end = U32(bag + 0x3a4);
+        if (end < begin || (end - begin) % 4 != 0 || (end - begin) / 4 > 160)
+            throw new IOException("Envanter değişti.");
+        for (uint i = 0; i < (end - begin) / 4; i++)
+        {
+            uint obj = U32(begin + i * 4);
+            byte[] b = obj < 65536 ? null : Read(obj, 0xa0);
+            if (b == null || b[0x28] == 0)
+            {
+                emptyBagSlots.Add((int)i + 13);
+                continue;
+            }
+            models[(int)i + 13] = BitConverter.ToUInt32(b, 0x34);
+        }
+        uint equip = U32(inv + 0x7c0);
+        if (equip < 65536)
+            throw new IOException("Ekipman okunamadı.");
+        for (int slot = 0; slot < 13; slot++)
+        {
+            byte[] b = Read(equip + 0xf10 + (uint)slot * 0x1d0, 0xf8);
+            if (b[0x28] == 0 || BitConverter.ToInt32(b, 0xf4) <= 0)
+                continue;
+            models[slot] = BitConverter.ToUInt32(b, 0x34);
+        }
+        return models;
     }
 
     internal bool ValidateItem(BagItem item)
@@ -672,10 +837,59 @@ sealed class GameReader : IDisposable
         return pid == Process.Id;
     }
 
+    // The character object exists (the game is in a world); one read of four bytes.
+    internal bool PlayerPointerValid()
+    {
+        try
+        {
+            return Global(0xAEF5EC) >= 65536;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
     public void Dispose()
     {
+        RemoteTrace.Flush();
+        RemoteJournal.Default.Marker(DateTime.Now, Process.Id, "detach");
+        StabilityLog.Write("Oyun bağlantısı bırakıldı · PID " + Process.Id);
         Native.CloseHandle(handle);
         Process.Dispose();
+    }
+}
+
+// How many commands the bot sends to the game, by kind. A server may drop a connection that sends too many (or too fast); the bot writes the
+// counts of the last minute to its event log while it runs, so a disconnect can be matched with what was being sent.
+static class SendStats
+{
+    static readonly Dictionary<string, int> counts = new Dictionary<string, int>();
+    static long windowStart = Environment.TickCount;
+
+    internal static void Add(string kind)
+    {
+        lock (counts)
+        {
+            int n;
+            counts.TryGetValue(kind, out n);
+            counts[kind] = n + 1;
+        }
+    }
+
+    // The counts since the last call as text ("seçim 410 · yürüme 22"), empty when nothing was sent; the counters start again.
+    internal static string TakeSummary(out int total, out double seconds)
+    {
+        lock (counts)
+        {
+            long now = Environment.TickCount;
+            seconds = Math.Max(1, (now - windowStart) / 1000.0);
+            windowStart = now;
+            total = counts.Values.Sum();
+            string text = string.Join(" · ", counts.OrderByDescending(c => c.Value).Select(c => c.Key + " " + c.Value));
+            counts.Clear();
+            return text;
+        }
     }
 }
 
@@ -724,9 +938,25 @@ sealed class TargetSender : IDisposable
     readonly IntPtr process;
     readonly uint function, moveFunction, reverseFunction, navigationFunction;
     IntPtr pendingThread, pendingBlock, pendingBlock2;
+    // Calls into the game that timed out or failed, one after the other: each one is followed by a short wait, and after
+    // RemoteFailureLimit of them the job is stopped (see RemoteCaller).
+    internal const int RemoteFailureLimit = 5;
+    readonly RemoteCaller caller;
+
+    internal bool BackingOff
+    {
+        get { return caller.BackingOff; }
+    }
+
+    internal bool FailureLimitReached
+    {
+        get { return caller.FailureLimitReached; }
+    }
 
     internal TargetSender(GameReader reader)
     {
+        int pid = reader.Process.Id;
+        caller = new RemoteCaller(pid, RemoteFailureLimit, () => RemoteGate.NowMs, StabilityLog.Write, RemoteJournal.Default, () => RemoteCaller.ProcessAlive(pid));
         if (reader.SenderAddress == 0)
             throw new InvalidOperationException("Hedef seçimi için DLL sürümü doğrulanamadı. " + reader.Compatibility);
         function = reader.SenderAddress;
@@ -752,39 +982,30 @@ sealed class TargetSender : IDisposable
 
     internal static byte[] BuildPacket(uint block, uint fn, ushort opcode, byte[] payload)
     {
-        if (opcode != 0x7045 && opcode != 0x704c && opcode != 0x3053 && opcode != 0x705a && opcode != 0x7046 && opcode != 0x7074)
+        RemoteJournal.Op = opcode;
+        RemoteJournal.Len = payload.Length;
+        SendStats.Add(opcode == 0x7045 ? "seçim" : opcode == 0x7046 ? "konuşma" : opcode == 0x7034 ? "eşya-taşıma" :
+            opcode == 0x704c ? "eşya-kullanma" : "diğer");
+        // No skill packet (0x7074) is allowed: skills are cast only by the hotbar key.
+        if (opcode != 0x7045 && opcode != 0x704c && opcode != 0x3053 && opcode != 0x705a && opcode != 0x7046 && opcode != 0x7034)
             throw new ArgumentException("Desteklenmeyen komut.");
         if ((opcode == 0x705a && (payload.Length != 9 || payload[4] != 2)) || payload.Length > 32 || (opcode == 0x7045 &&
             payload.Length != 4) || (opcode == 0x3053 && (payload.Length != 1 || payload[0] != 1)) ||
             (opcode == 0x7046 && (payload.Length != 5 || payload[4] < 1 || payload[4] > 9)) ||
-            (opcode == 0x7074 && !ValidCast(payload)))
+            (opcode == 0x7034 && !ValidMove(payload)))
             throw new ArgumentException("Geçersiz veri.");
         return BuildCall(block, fn, new uint[] { opcode, block + 64, (uint)payload.Length }, payload);
     }
 
-    // Use of a skill: 01 04, the skill id, then 00 (no target: a buff on oneself) or 01 and the target's id.
-    internal static bool ValidCast(byte[] payload)
+    // Moving an item inside the character's own inventory: 00 (inside the inventory), the slot it is taken from, the slot it goes to, the amount
+    // (two bytes). Allowed: from the bag (slot 13 and up) to another bag slot or to the weapon slot (6, which puts the weapon that was there into
+    // the bag slot the new one came from). Nothing else can be moved with it: no trade, storage, ground or shop transfers.
+    internal static bool ValidMove(byte[] payload)
     {
-        if (payload == null || payload.Length < 7 || payload[0] != 1 || payload[1] != 4)
+        if (payload == null || payload.Length != 5 || payload[0] != 0)
             return false;
-        uint skill = BitConverter.ToUInt32(payload, 2);
-        if (skill == 0 || skill > 99999999)
-            return false;
-        return (payload.Length == 7 && payload[6] == 0) || (payload.Length == 11 && payload[6] == 1 && BitConverter.ToUInt32(payload, 7) != 0);
-    }
-
-    internal static byte[] CastPayload(uint skill, uint target)
-    {
-        var payload = new byte[target == 0 ? 7 : 11];
-        payload[0] = 1;
-        payload[1] = 4;
-        Array.Copy(BitConverter.GetBytes(skill), 0, payload, 2, 4);
-        if (target != 0)
-        {
-            payload[6] = 1;
-            Array.Copy(BitConverter.GetBytes(target), 0, payload, 7, 4);
-        }
-        return payload;
+        int from = payload[1], to = payload[2], amount = BitConverter.ToUInt16(payload, 3);
+        return from >= 13 && (to == 6 || to >= 13) && from != to && amount >= 1 && amount <= 1000;
     }
 
     internal static byte[] BuildCall(uint block, uint fn, uint[] arguments, byte[] payload)
@@ -826,10 +1047,11 @@ sealed class TargetSender : IDisposable
         if (moveFunction == 0)
             throw new InvalidOperationException("Hareket işlevi doğrulanmadı.");
         uint move = moveFunction;
+        SendStats.Add("yürüme");
         return Execute(b => BuildCall(b, move, new uint[]
         {
             p.Region, V2Rules.Bits(p.LocalX), V2Rules.Bits(p.Height), V2Rules.Bits(p.LocalY)
-        }, new byte[0]));
+        }, new byte[0]), "move");
     }
 
     internal static byte[] BuildMountCall(uint block, uint fn, uint[] arguments)
@@ -849,7 +1071,7 @@ sealed class TargetSender : IDisposable
             throw new IOException("Mount işlevinin sürümü doğrulanamadı.");
         if (!mounted && uid == 0)
             return true;
-        return Execute(b => BuildMountCall(b, fn, mounted ? new uint[0] : new[] { uid }));
+        return Execute(b => BuildMountCall(b, fn, mounted ? new uint[0] : new[] { uid }), "mount");
     }
 
     internal bool UseReturn(BagItem item)
@@ -858,6 +1080,27 @@ sealed class TargetSender : IDisposable
             item.Slot < 13 || item.Slot >= 173)
             throw new InvalidOperationException("Return Scroll geçersiz.");
         return Execute(b => BuildPacket(b, function, 0x704c, new byte[] { (byte)item.Slot, (byte)item.Type, (byte)(item.Type >> 8) }));
+    }
+
+    // Uses a Reverse Return Scroll for the third choice of its window, "go to a place of the list": the item's slot and type, the choice 7 and the
+    // number of the place (the game's own table, see ReversePoints). Nothing is sent for a number that is not in that table.
+    internal bool UseReverseTo(BagItem item, int pointId)
+    {
+        if (!RecoveryRules.IsReverse(item) || ReverseRules.Find(pointId) == null)
+            throw new InvalidOperationException("Reverse Scroll ya da nokta geçersiz.");
+        byte[] payload = ReversePayload(item, pointId);
+        return Execute(b => BuildPacket(b, function, 0x704c, payload));
+    }
+
+    internal static byte[] ReversePayload(BagItem item, int pointId)
+    {
+        var payload = new byte[8];
+        payload[0] = (byte)item.Slot;
+        payload[1] = (byte)item.Type;
+        payload[2] = (byte)(item.Type >> 8);
+        payload[3] = 7;
+        Array.Copy(BitConverter.GetBytes((uint)pointId), 0, payload, 4, 4);
+        return payload;
     }
 
     internal bool Teleport(uint uid, int from, int to)
@@ -871,13 +1114,13 @@ sealed class TargetSender : IDisposable
         return Execute(b => BuildPacket(b, function, 0x705a, payload));
     }
 
-    // Uses a skill by its id: on the given target, or on oneself (target 0). The client's own send function is used; no key is pressed.
-    internal bool Cast(uint skill, uint target)
+    // Moves an item of the bag to another bag slot or onto the weapon slot (6): "put on this weapon". The client's own send function is used.
+    internal bool MoveItem(int from, int to, int amount)
     {
-        byte[] payload = CastPayload(skill, target);
-        if (!ValidCast(payload))
-            throw new InvalidOperationException("Skill kimliği geçersiz.");
-        return Execute(b => BuildPacket(b, function, 0x7074, payload));
+        byte[] payload = { 0, (byte)from, (byte)to, (byte)amount, (byte)(amount >> 8) };
+        if (from < 0 || from > 255 || to < 0 || to > 255 || !ValidMove(payload))
+            throw new InvalidOperationException("Eşya taşıma isteği geçersiz.");
+        return Execute(b => BuildPacket(b, function, 0x7034, payload));
     }
 
     // Talk to a selected NPC: the NPC's id and the number of the dialog option (1 = the first option).
@@ -900,7 +1143,7 @@ sealed class TargetSender : IDisposable
     {
         if (!RecoveryRules.IsReverse(item) || reverseFunction == 0)
             throw new InvalidOperationException("Reverse Scroll doğrulanamadı.");
-        return Execute(b => BuildCall(b, reverseFunction, new uint[] { (uint)(item.Slot - 13), 2 }, new byte[0]));
+        return Execute(b => BuildCall(b, reverseFunction, new uint[] { (uint)(item.Slot - 13), 2 }, new byte[0]), "reverse");
     }
 
     // Up to BatchMax navigation queries in one call of the game: one remote thread instead of one per query (a thread costs about 3 ms,
@@ -959,8 +1202,15 @@ sealed class TargetSender : IDisposable
 
     byte[] ExecuteBatch(Func<uint, byte[]> build, int count)
     {
-        if (pendingThread != IntPtr.Zero)
-            throw new IOException("Önceki çağrı tamamlanmadı; yeniden denenmez.");
+        byte[] answers = null;
+        caller.Run(true, count, delegate { answers = ExecuteBatchOnce(build, count); });
+        return answers;
+    }
+
+    byte[] ExecuteBatchOnce(Func<uint, byte[]> build, int count)
+    {
+        if (!ReleasePending())
+            throw new RemoteTimeoutException("Önceki çağrı tamamlanmadı; yeniden denenmez.");
         // Two pages: the code (made executable, never writable afterwards) and a plain data page the queries write their answers into.
         IntPtr block = Native.VirtualAllocEx(process, IntPtr.Zero, (UIntPtr)4096, 0x3000, 4);
         if (block == IntPtr.Zero)
@@ -996,7 +1246,7 @@ sealed class TargetSender : IDisposable
                 pendingBlock2 = results;
                 free = false;
                 thread = IntPtr.Zero;
-                throw new IOException("Oyun çağrısı tamamlanmadı; durduruldu.");
+                throw new RemoteTimeoutException("Oyun çağrısı tamamlanmadı; durduruldu.");
             }
             var buffer = new byte[count];
             UIntPtr read;
@@ -1024,13 +1274,36 @@ sealed class TargetSender : IDisposable
         {
             from.Region, V2Rules.Bits(from.LocalX), V2Rules.Bits(from.Height), V2Rules.Bits(from.LocalY), to.Region,
                 V2Rules.Bits(to.LocalX), V2Rules.Bits(to.Height), V2Rules.Bits(to.LocalY)
-        }, new byte[0]));
+        }, new byte[0]), "probe");
     }
 
-    bool Execute(Func<uint, byte[]> build)
+    bool Execute(Func<uint, byte[]> build, string kind = null)
     {
-        if (pendingThread != IntPtr.Zero)
-            throw new IOException("Önceki çağrı tamamlanmadı; yeniden denenmez.");
+        bool answer = false;
+        caller.Run(false, 1, delegate { answer = ExecuteOnce(build); }, kind);
+        return answer;
+    }
+
+    // A call that timed out earlier may have finished by now: its thread and memory are let go and the next call can go on. False while
+    // it is still running (it is not waited for).
+    bool ReleasePending()
+    {
+        if (pendingThread == IntPtr.Zero)
+            return true;
+        if (Native.WaitForSingleObject(pendingThread, 0) != 0)
+            return false;
+        Native.VirtualFreeEx(process, pendingBlock, UIntPtr.Zero, 0x8000);
+        if (pendingBlock2 != IntPtr.Zero)
+            Native.VirtualFreeEx(process, pendingBlock2, UIntPtr.Zero, 0x8000);
+        Native.CloseHandle(pendingThread);
+        pendingThread = pendingBlock = pendingBlock2 = IntPtr.Zero;
+        return true;
+    }
+
+    bool ExecuteOnce(Func<uint, byte[]> build)
+    {
+        if (!ReleasePending())
+            throw new RemoteTimeoutException("Önceki çağrı tamamlanmadı; yeniden denenmez.");
         IntPtr block = Native.VirtualAllocEx(process, IntPtr.Zero, (UIntPtr)4096, 0x3000, 4);
         if (block == IntPtr.Zero)
             throw new Win32Exception(Marshal.GetLastWin32Error());
@@ -1057,13 +1330,13 @@ sealed class TargetSender : IDisposable
                 pendingBlock = block;
                 free = false;
                 thread = IntPtr.Zero;
-                throw new IOException("Oyun çağrısı tamamlanmadı; durduruldu.");
+                throw new RemoteTimeoutException("Oyun çağrısı tamamlanmadı; durduruldu.");
             }
             uint result;
             if (!Native.GetExitCodeThread(thread, out result))
                 throw new Win32Exception(Marshal.GetLastWin32Error());
             if (result > 1)
-                throw new IOException("Oyun çağrısı beklenmedik sonuç verdi.");
+                throw new UnexpectedResultException("Oyun çağrısı beklenmedik sonuç verdi.");
             return result == 1;
         }
         finally
@@ -1077,6 +1350,8 @@ sealed class TargetSender : IDisposable
 
     public void Dispose()
     {
+        RemoteTrace.Flush();
+        RemoteJournal.Default.Flush();
         if (pendingThread != IntPtr.Zero)
         {
             if (Native.WaitForSingleObject(pendingThread, 1000) == 0)

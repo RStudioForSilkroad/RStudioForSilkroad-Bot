@@ -162,11 +162,11 @@ sealed class CharacterStats
 
 sealed class StatPanel : Control
 {
-    internal static readonly Color HpColor = Color.FromArgb(239, 68, 68), MpColor = Color.FromArgb(59, 130, 246),
-        ExpColor = Color.FromArgb(34, 197, 94), SpColor = Color.FromArgb(245, 158, 11);
-    // Darker variants for text on white (at least 4.5:1)
-    static readonly Color HpInk = Color.FromArgb(185, 28, 28), MpInk = Color.FromArgb(29, 78, 216), ExpInk = Color.FromArgb(21, 128, 61),
-        SpInk = Color.FromArgb(180, 83, 9);
+    internal static readonly Color HpColor = Color.FromArgb(214, 76, 60), MpColor = Color.FromArgb(78, 132, 214),
+        ExpColor = Color.FromArgb(64, 170, 118), SpColor = Color.FromArgb(214, 160, 58);
+    // Lighter variants for text on the dark panel (at least 4.5:1)
+    static readonly Color HpInk = Color.FromArgb(240, 112, 104), MpInk = Color.FromArgb(111, 160, 240), ExpInk = Color.FromArgb(92, 201, 138),
+        SpInk = Color.FromArgb(232, 176, 74);
     internal const int EmptyHeight = 48, FullHeight = 262;
     internal Snapshot Sample;
     internal CharacterStats Stats;
@@ -220,7 +220,7 @@ sealed class StatPanel : Control
         DrawLine(g, label, Ui.BodyBold, ink, 0, y, 44);
         var track = new Rectangle(left, y + 5, barWidth, 14);
         using (var path = Ui.RoundRect(track, 7))
-            using (var brush = new SolidBrush(Color.FromArgb(230, 234, 241)))
+            using (var brush = new SolidBrush(Ui.Field))
                 g.FillPath(brush, path);
         fraction = Math.Max(0, Math.Min(1, double.IsNaN(fraction) ? 0 : fraction));
         int fillWidth = (int)(barWidth * fraction);
@@ -231,26 +231,26 @@ sealed class StatPanel : Control
                 using (var brush = new SolidBrush(fill))
                     g.FillPath(brush, path);
         }
-        DrawLine(g, text, Ui.Body, Ui.Text, left + barWidth + 12, y, valueWidth);
+        DrawLine(g, text, Ui.Body, Ui.Ink, left + barWidth + 12, y, valueWidth);
     }
 
     protected override void OnPaint(PaintEventArgs e)
     {
         base.OnPaint(e);
         var g = e.Graphics;
-        g.Clear(Ui.Surface);
+        g.Clear(Ui.Card);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         var s = Sample;
         if (s == null || !s.StatsKnown)
         {
-            DrawLine(g, "Karakter verisi yok · oyun penceresini seçip Bağlan / Oku'ya bas.", Ui.Body, Ui.TextMuted, 0, 4, Width, 28);
+            DrawLine(g, "Karakter verisi yok · oyun penceresini seçip Bağlan / Oku'ya bas.", Ui.Body, Ui.InkMuted, 0, 4, Width, 28);
             return;
         }
         int x = 0;
         if (!string.IsNullOrEmpty(s.CharacterName))
         {
             int w = TextRenderer.MeasureText(s.CharacterName, Ui.Title, new Size(2000, 40), Flags).Width;
-            DrawLine(g, s.CharacterName, Ui.Title, Ui.Text, 0, 0, w + 4, 32);
+            DrawLine(g, s.CharacterName, Ui.Title, Ui.Ink, 0, 0, w + 4, 32);
             x = w + 14;
         }
         string level = "Seviye " + s.Level;
@@ -288,27 +288,27 @@ sealed class StatPanel : Control
         int[] columns = { 0, 52, 52 + span * 20 / 100, 52 + span * 44 / 100, 52 + span * 70 / 100 };
         string[] titles = { "", "Oturum", "Dakikada", "Saatte", "Kalan" };
         for (int i = 1; i < titles.Length; i++)
-            DrawLine(g, titles[i], Ui.Small, Ui.TextMuted, columns[i], y, columns[i] + 100 > Width ? 80 : 120, 20);
+            DrawLine(g, titles[i], Ui.Small, Ui.InkMuted, columns[i], y, columns[i] + 100 > Width ? 80 : 120, 20);
         y += 22;
         if (Stats == null || !Stats.Started)
         {
-            DrawLine(g, "Sayaçlar bot çalışırken dolar.", Ui.Body, Ui.TextMuted, 0, y, Width, 24);
+            DrawLine(g, "Sayaçlar bot çalışırken dolar.", Ui.Body, Ui.InkMuted, 0, y, Width, 24);
             return;
         }
         double expMin = Stats.ExpPerMinute(Now), spMin = Stats.SpPerMinute(Now);
         int cell = Math.Max(90, span * 24 / 100);
         DrawLine(g, "EXP", Ui.BodyBold, ExpInk, columns[0], y, 48);
-        DrawLine(g, Signed(Stats.ExpGained), Ui.Body, Ui.Text, columns[1], y, cell);
-        DrawLine(g, Signed(expMin) + " /dk", Ui.Body, Ui.Text, columns[2], y, cell);
-        DrawLine(g, Signed(expMin * 60) + " /sa" + (need > 0 ? " (%" + (100.0 * expMin * 60 / need).ToString("0.0") + ")" : ""), Ui.Body, Ui.Text,
+        DrawLine(g, Signed(Stats.ExpGained), Ui.Body, Ui.Ink, columns[1], y, cell);
+        DrawLine(g, Signed(expMin) + " /dk", Ui.Body, Ui.Ink, columns[2], y, cell);
+        DrawLine(g, Signed(expMin * 60) + " /sa" + (need > 0 ? " (%" + (100.0 * expMin * 60 / need).ToString("0.0") + ")" : ""), Ui.Body, Ui.Ink,
             columns[3], y, cell + 20);
-        DrawLine(g, "Seviyeye " + Duration(Stats.MinutesToLevel(Now, s)), Ui.Body, Ui.Text, columns[4], y, Width - columns[4]);
+        DrawLine(g, "Seviyeye " + Duration(Stats.MinutesToLevel(Now, s)), Ui.Body, Ui.Ink, columns[4], y, Width - columns[4]);
         y += 26;
         DrawLine(g, "SP", Ui.BodyBold, SpInk, columns[0], y, 48);
-        DrawLine(g, "+" + Stats.SpGained.ToString("0.0"), Ui.Body, Ui.Text, columns[1], y, cell);
-        DrawLine(g, "+" + spMin.ToString("0.00") + " /dk", Ui.Body, Ui.Text, columns[2], y, cell);
-        DrawLine(g, "+" + (spMin * 60).ToString("0.0") + " /sa", Ui.Body, Ui.Text, columns[3], y, cell);
-        DrawLine(g, "Sonraki SP " + Duration(Stats.MinutesToNextSp(Now, s)), Ui.Body, Ui.Text, columns[4], y, Width - columns[4]);
+        DrawLine(g, "+" + Stats.SpGained.ToString("0.0"), Ui.Body, Ui.Ink, columns[1], y, cell);
+        DrawLine(g, "+" + spMin.ToString("0.00") + " /dk", Ui.Body, Ui.Ink, columns[2], y, cell);
+        DrawLine(g, "+" + (spMin * 60).ToString("0.0") + " /sa", Ui.Body, Ui.Ink, columns[3], y, cell);
+        DrawLine(g, "Sonraki SP " + Duration(Stats.MinutesToNextSp(Now, s)), Ui.Body, Ui.Ink, columns[4], y, Width - columns[4]);
     }
 }
 
@@ -319,7 +319,7 @@ sealed partial class MemorySelectV3Form
 
     void BuildStatCard()
     {
-        var card = Card("Karakter durumu");
+        var card = Card("Karakter durumu", true);
         statPanel.Stats = characterStats;
         Line(card).Controls.Add(Stretch(statPanel));
         Line(card).Controls.Add(Btn("Sayaçları sıfırla", delegate

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -29,8 +29,8 @@ sealed partial class MemorySelectV3Form
         var search = new TextBox { Dock = DockStyle.Top, BorderStyle = BorderStyle.FixedSingle };
         var list = new ListBox { Dock = DockStyle.Fill, BorderStyle = BorderStyle.FixedSingle, IntegralHeight = false };
         var viewer = new MapViewer { Dock = DockStyle.Fill };
-        var hint = new Label { Dock = DockStyle.Bottom, Height = 72, Padding = new Padding(0, 10, 0, 0), Tag = "muted", Text =
-            "Fare tekerleği: yakınlaştır · Sol tuş: sürükle\n134 canlı kayıt; şehir krokisi yaklaşık yapı izdüşümüdür." };
+        var hint = new Label { Dock = DockStyle.Bottom, Height = 96, Padding = new Padding(0, 10, 0, 0), Tag = "muted", Text =
+            "Fare tekerleği: yakınlaştır · Sol tuş: sürükle\nŞehir krokisi yaklaşık yapı izdüşümüdür." };
         split.Panel1.Controls.Add(list);
         split.Panel1.Controls.Add(hint);
         split.Panel1.Controls.Add(new Panel { Dock = DockStyle.Top, Height = 8 });
@@ -47,31 +47,44 @@ sealed partial class MemorySelectV3Form
             {
                 records = new JavaScriptSerializer { MaxJsonLength = 16000000 }.Deserialize<NpcMapData>(r.ReadToEnd()).NPCs;
             }
-        Action filter = delegate
+        nanzhangBuiltIn = MergeTableNpcs(records);
+        nanzhangList = list;
+        nanzhangSearch = search;
+        nanzhangHint = hint;
+        nzStore = NanzhangData.Load(NanzhangData.StorePath);
+        ConfigureCheck(collectNpcs, "Gezerken NPC’leri kaydet (Nanzhang haritası)", true, 0);
+        collectNpcs.Dock = DockStyle.Top;
+        collectNpcs.Margin = new Padding(0);
+        collectNpcs.CheckedChanged += delegate
         {
-            list.Items.Clear();
-            foreach (var n in records.Where(n => (n.name + " " + n.id).IndexOf(search.Text, StringComparison.OrdinalIgnoreCase) >= 0))
-                list.Items.Add(n);
+            if (settings != null)
+                SaveSettingsQuietly();
         };
-        search.TextChanged += delegate { filter(); };
-        filter();
+        split.Panel1.Controls.Add(collectNpcs);
+        search.TextChanged += delegate { RefreshNanzhangList(); };
+        RefreshNanzhangList();
         list.SelectedIndexChanged += delegate
         {
             var n = list.SelectedItem as NpcMapRecord;
             if (n != null)
             {
+                int quests = NanzhangData.World.quests.Count(q => q.npc == n.name);
+                int rewarded = NanzhangData.World.quests.Count(q => q.npc == n.name && q.HasReward);
                 hint.Text = n.name + " · Kimlik " + n.id + "\nX " + n.x.ToString("F1") + " / Y " + n.y.ToString("F1") +
-                    " · Harita no " + n.number;
-                viewer.FocusNpc(n.x, n.y);
+                    " · Harita no " + n.number + (n.collected ? " · toplandı " + n.seen : n.fromTable ? " · oyun tablosu" : "") +
+                    "\n" + (quests == 0 ? "Görevi yok." : quests + " görev (" + rewarded + " ödüllü) · Quest sayfasında.");
+                // The city is shown on its sketch; an NPC outside it is marked on the game's own world map.
+                if (n.x == 0 && n.y == 0)
+                    hint.Text += "\nKonumu henüz bilinmiyor; haritada gezerken bot kaydeder.";
+                else if (n.x >= 5400 && n.x <= 6300 && n.y >= -2000 && n.y <= -1500)
+                    viewer.FocusNpc(n.x, n.y);
+                else
+                {
+                    viewer.FocusWorld(n.x, n.y);
+                    hint.Text += "\nOyunun harita görselinde işaretli.";
+                }
             }
         };
-        themePicker.Width = 120;
-        themePicker.DropDownStyle = ComboBoxStyle.DropDownList;
-        themePicker.Items.AddRange(Ui.AccentNames);
-        headerPanel.Controls.Add(themeLabel);
-        headerPanel.Controls.Add(themePicker);
-        PlaceHeaderRight();
-        headerPanel.Resize += delegate { PlaceHeaderRight(); };
         themePicker.SelectedIndexChanged += delegate
         {
             ApplyTheme();
@@ -91,7 +104,8 @@ sealed partial class MemorySelectV3Form
         Action<Control, Color> paint = null;
         paint = (c, bg) =>
         {
-            if (c is MapViewer || c is ExplorerMapView || c is DungeonRadar || c is StatPanel || c is TabStrip)
+            if (c is MapViewer || c is ExplorerMapView || c is DungeonShot || c is DungeonDetails || c is StatPanel || c is TabStrip || c is ArtPlate ||
+                c is SkillListView || c is RouteHeader)
             {
                 c.Invalidate();
                 return;
@@ -99,60 +113,71 @@ sealed partial class MemorySelectV3Form
             if (c == updateBanner)
             {
                 c.BackColor = Ui.Danger;
-                c.ForeColor = Color.White;
+                c.ForeColor = Ui.OnStatus;
                 return;
             }
             if (c == sidebar)
             {
-                sidebar.BackColor = Ui.Surface;
+                sidebar.BackColor = Ui.Back;
                 sidebar.Invalidate();
                 return;
             }
-            if (c == headerPanel || c == footerPanel || c == sidebarHost)
-                bg = Ui.Surface;
+            // the outer frame (page list, log, status strip) is the darker stone; the pages are the lighter one
+            if (c == sidebarHost || c == leftPanel || c == bottomPanel || c == statusStrip)
+                bg = Ui.Back;
             if (c is CardBox)
-                bg = Ui.Surface;
-            if (c is WorldMapView)
-            {
-                foreach (Control child in c.Controls)
-                    paint(child, Ui.Surface);
-                c.Invalidate();
-                return;
-            }
+                bg = Ui.Card;
             var page = c as TabPage;
             if (page != null)
                 page.UseVisualStyleBackColor = false;
             if (c is TextBox || c is ComboBox || c is NumericUpDown || c is ListBox)
             {
-                c.BackColor = Ui.Surface;
-                c.ForeColor = Ui.Text;
+                // inputs are sunk into their panel; Windows draws the scroll bars and spin buttons in its dark variant
+                c.BackColor = Ui.Field;
+                c.ForeColor = Ui.Ink;
+                Ui.DarkNative(c);
             }
             else if (c is SplitContainer)
                 c.BackColor = Ui.Divider;
+            else if ((c is Label || (c is Panel && !(c is StonePanel))) && bg == Ui.Back)
+            {
+                // on the textured frame labels and plain panels let the stone show through
+                c.BackColor = Color.Transparent;
+                c.ForeColor = "muted".Equals(c.Tag) ? Ui.InkMuted : Ui.Ink;
+            }
             else if (c is Button)
                 Fancy.Style((Button)c);
             else if ("border".Equals(c.Tag))
             {
-                c.BackColor = Ui.Border;
-                bg = Ui.Surface;
+                c.BackColor = Ui.Bronze;
+                bg = Ui.Card;
             }
             else
             {
                 c.BackColor = bg;
-                c.ForeColor = c is Label && "muted".Equals(c.Tag) ? Ui.TextMuted : c is Label && "warn".Equals(c.Tag) ? Ui.Warning : Ui.Text;
+                c.ForeColor = c is Label && "muted".Equals(c.Tag) ? Ui.InkMuted : c is Label && "warn".Equals(c.Tag) ? Ui.Warning :
+                    c is Label && "gold".Equals(c.Tag) ? Ui.Gold : Ui.Ink;
             }
             var g = c as DataGridView;
             if (g != null)
+            {
                 Ui.StyleGrid(g);
+                Ui.DarkNative(g);
+            }
+            if (c is CheckBox)
+                Fancy.StyleCheck((CheckBox)c);
+            if (c is CheckBox || c is RadioButton)
+                Ui.DarkNative(c);
+            else if (c is ScrollableControl && ((ScrollableControl)c).AutoScroll)
+                Ui.DarkNative(c);
             foreach (Control child in c.Controls)
                 paint(child, bg);
         };
-        BackColor = Ui.Canvas;
-        paint(this, Ui.Canvas);
+        BackColor = Ui.Back;
+        Ui.DarkCaption(this);
+        paint(this, Ui.Stone);
         statPanel.Invalidate();
-        if (headerPanel != null)
-            headerPanel.Invalidate(true);
-        dungeonRadar.Invalidate();
+        dungeonDetails.Invalidate();
         Invalidate(true);
     }
 
@@ -160,44 +185,14 @@ sealed partial class MemorySelectV3Form
     void UpdateTitle()
     {
         string name = snapshot == null ? null : snapshot.CharacterName;
-        string title = (string.IsNullOrEmpty(name) ? "" : name + " - ") + AppPaths.AppName + " " + Application.ProductVersion;
+        string state = reader == null ? "Bağlı değil" : "Bağlı";
+        string title = AppPaths.AppName + " v" + Application.ProductVersion + (string.IsNullOrEmpty(name) ? "" : " - " + name) + " - " + state;
+        if (routeHeader != null && tabs.SelectedTab != null)
+            routeHeader.SetTitle(tabs.SelectedTab.Text);
+        if (routeHeader != null)
+            routeHeader.SetState((string.IsNullOrEmpty(name) ? "" : name + (snapshot.StatsKnown ? " · Seviye " + snapshot.Level : "") + " · ") + state, reader != null);
         if (Text != title)
             Text = title;
-    }
-
-    // Right side of the header: release notes button and the accent colour choice.
-    void PlaceHeaderRight()
-    {
-        if (headerPanel == null || whatsNewButton == null)
-            return;
-        int right = headerPanel.ClientSize.Width - 20;
-        themePicker.Location = new Point(Math.Max(10, right - themePicker.Width), 49);
-        themeLabel.Location = new Point(themePicker.Left - themeLabel.PreferredWidth - 8, 53);
-        whatsNewButton.Location = new Point(themeLabel.Left - whatsNewButton.Width - 16, 46);
-    }
-
-    // Header: white bar with the application name on the left and the connection controls next to it.
-    void PaintHeader(object sender, PaintEventArgs e)
-    {
-        var g = e.Graphics;
-        var r = headerPanel.ClientRectangle;
-        if (r.Width < 2 || r.Height < 2)
-            return;
-        g.Clear(Ui.Surface);
-        g.SmoothingMode = SmoothingMode.AntiAlias;
-        var mark = new Rectangle(20, 12, 32, 32);
-        using (var path = Ui.RoundRect(mark, 8))
-            using (var fill = new SolidBrush(Ui.Accent))
-                g.FillPath(fill, path);
-        TextRenderer.DrawText(g, "R", Ui.Title, mark, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(g, AppPaths.AppName, Ui.Heading, new Point(60, 10), Ui.Text);
-        TextRenderer.DrawText(g, "Sürüm " + Application.ProductVersion, Ui.Small, new Point(61, 31), Ui.TextMuted);
-        using (var line = new Pen(Ui.Border))
-            g.DrawLine(line, 0, r.Height - 1, r.Width, r.Height - 1);
-        // Connection indicator in front of the status line
-        Color dot = reader == null ? Ui.BorderStrong : Ui.Success;
-        using (var brush = new SolidBrush(dot))
-            g.FillEllipse(brush, 22, 62, 10, 10);
     }
 
     void OpenManual()
@@ -210,20 +205,21 @@ sealed partial class MemorySelectV3Form
         Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
     }
 
-    sealed class NpcMapData
+    internal sealed class NpcMapData
     {
         public List<NpcMapRecord> NPCs;
     }
 
-    sealed class NpcMapRecord
+    internal sealed class NpcMapRecord
     {
-        public string name;
+        public string name, seen;
         public int id, number;
         public double x, y;
+        public bool collected, fromTable;
 
         public override string ToString()
         {
-            return number.ToString("000") + " · " + name;
+            return (collected ? "★ " : "") + number.ToString("000") + " · " + name + (x == 0 && y == 0 ? " (konum yok)" : "");
         }
     }
 }

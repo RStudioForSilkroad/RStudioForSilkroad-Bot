@@ -107,6 +107,8 @@ sealed class CompletionNotice : IDisposable
         }
         var old = new HashSet<string>();
         bool baseline = true;
+        // one buffer for all 1 MB pieces (a new array per piece fills the large object heap of the 32-bit program)
+        byte[] bytes = new byte[1024 * 1024 + 512];
         try
         {
             while (!stopped && run == generation)
@@ -128,7 +130,7 @@ sealed class CompletionNotice : IDisposable
                         for (uint part = region.Base; part < end && !stopped; part += 1024 * 1024)
                         {
                             int size = (int)Math.Min(1024 * 1024 + 512, end - part);
-                            byte[] bytes = new byte[size];
+                            Array.Clear(bytes, 0, size);
                             UIntPtr read;
                             if (!Native.ReadProcessMemory(handle, new IntPtr(unchecked((int)part)), bytes, (UIntPtr)size,
                                 out read))

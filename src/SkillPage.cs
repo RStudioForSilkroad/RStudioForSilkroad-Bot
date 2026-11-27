@@ -4,11 +4,12 @@ using System.Drawing;
 using System.Linq;
 using System.Windows.Forms;
 
-// The "Skiller" page: the skill list, its options, profiles, buff-id learning and the background-key test.
+// The "Skiller" page: the skill list (every line is a hotbar key to press), its options, profiles, buff-id learning (read only) and the background-key test.
 sealed partial class MemorySelectV3Form
 {
     readonly CheckBox skillListBox = new CheckBox(), backgroundKeys = new CheckBox(), optBuffWhileAttacking = new CheckBox(),
-        optRearm = new CheckBox(), optInOrder = new CheckBox(), optFallback = new CheckBox(), optBuffOnly = new CheckBox();
+        optRearm = new CheckBox(), optInOrder = new CheckBox(), optFallback = new CheckBox(), optBuffOnly = new CheckBox(), optWeaponSwap = new CheckBox();
+    readonly NumericUpDown optCastPace = new NumericUpDown();
     readonly DataGridView skillGrid = new DataGridView();
     readonly ComboBox profileBox = new ComboBox(), templateBox = new ComboBox();
     readonly Label skillInfo = new Label(), buffInfo = new Label();
@@ -43,19 +44,27 @@ sealed partial class MemorySelectV3Form
     FlowLayoutPanel SkillRow(Control parent, int top = 0)
     {
         var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Margin = new Padding(0, top, 0, 2),
-            MaximumSize = new Size(900, 0) };
+            MaximumSize = new Size(820, 0) };
         parent.Controls.Add(row);
         return row;
     }
 
     void BuildSkillsPage()
     {
-        var page = new TabPage("Skiller");
+        var page = new TabPage("Saldırı");
         tabs.TabPages.Add(page);
-        var content = PageCard(page, "Skiller · buff · savunma", 940);
-        var intro = new Label { AutoSize = false, Width = 900, Height = 46, Tag = "muted", Margin = new Padding(0, 0, 0, 6), Text =
+        // phBot's Attack page has its own tabs; so has this one: the list, the options, profiles and help.
+        var skillTabs = SubTabs(page);
+        // MSRO's Skill ve Buff layout comes first; the skill grid (the data model of the list) is the "Gelişmiş tablo" sub-page.
+        var fMain = SubPage(skillTabs, "Skill ve Buff");
+        var fOptions = SubPage(skillTabs, "Seçenekler");
+        var fProfile = SubPage(skillTabs, "Profil / şablon");
+        var fList = SubPage(skillTabs, "Gelişmiş tablo");
+        var fHelp = SubPage(skillTabs, "Nasıl çalışır");
+        var content = fOptions;
+        var intro = new Label { AutoSize = false, Width = 820, Height = 46, Tag = "muted", Margin = new Padding(0, 0, 0, 6), Text =
             "Hotbar tuşlarını türe göre sıraya diz: saldırı skill'leri hedef türüne ve mob sayısına göre seçilir, buff'lar karakterin gerçek buff listesine " +
-            "bakılarak bittiğinde yenilenir, acil buff'lar can düşünce ya da etrafı mob sarınca basılır. Liste Av ve Grim Crypt için ortaktır." };
+            "bakılarak bittiğinde yenilenir, acil buff'lar can düşünce ya da etrafı mob sarınca basılır. Skill'ler yalnız hotbar tuşuna basılarak kullanılır. Liste Av ve Grim Crypt için ortaktır." };
         content.Controls.Add(intro);
 
         content.Controls.Add(SectionTitle("Genel"));
@@ -63,7 +72,7 @@ sealed partial class MemorySelectV3Form
         ConfigureCheck(skillListBox, "Skill listesini kullan · Av / Ayarlar’daki Tuşlar kutusu yerine geçer", false, 0);
         row.Controls.Add(skillListBox);
         row = SkillRow(content);
-        ConfigureCheck(backgroundKeys, "Tuşlu satırlar: oyun önde değilken de tuş gönder (bu istemcide çalışmıyor; skill’leri kimlikle kullan)", false, 0);
+        ConfigureCheck(backgroundKeys, "Oyun önde değilken de tuş gönder (bu istemci arka plandaki pencerede tuşu işlemiyor; kapalı bırak)", false, 0);
         row.Controls.Add(backgroundKeys);
         row.Controls.Add(Btn("Arka plan tuşunu sına", BackgroundKeyTest, 210, false, ButtonKind.Secondary));
         row = SkillRow(content);
@@ -79,7 +88,11 @@ sealed partial class MemorySelectV3Form
         row = SkillRow(content);
         ConfigureCheck(optBuffOnly, "Saldırma, yalnız buff / iyileştirme yap (Cleric, Bard gibi)", false, 0);
         row.Controls.Add(optBuffOnly);
+        // Weapon swap and the cast pace belonged to skills sent as packets; they are not shown and not used (the stored values are kept).
+        ConfigureCheck(optWeaponSwap, "", true, 0);
+        Num(optCastPace, 20, 150, 40, 0, 80);
 
+        content = fProfile;
         content.Controls.Add(SectionTitle("Profil ve şablon"));
         row = SkillRow(content);
         profileBox.Width = 220;
@@ -99,10 +112,13 @@ sealed partial class MemorySelectV3Form
         row.Controls.Add(templateBox);
         row.Controls.Add(Btn("Şablonu listeye ekle", AddTemplate, 190));
 
-        BuildLearnedSection(content);
-        content.Controls.Add(SectionTitle("Skill listesi"));
-        skillGrid.Width = 900;
-        skillGrid.Height = 270;
+        content = fList;
+        content.Controls.Add(SectionTitle("Skill tablosu (gelişmiş)"));
+        var gridNote = new Label { AutoSize = false, Width = 820, Height = 24, Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
+            "Skill ve Buff sekmesindeki listenin tablo hali: her hücre elle de düzenlenebilir. İki görünüm aynı listeyi gösterir." };
+        content.Controls.Add(gridNote);
+        skillGrid.Width = 820;
+        skillGrid.Height = 340;
         skillGrid.Margin = new Padding(0, 0, 0, 6);
         skillGrid.AllowUserToAddRows = false;
         skillGrid.AllowUserToResizeRows = false;
@@ -115,14 +131,17 @@ sealed partial class MemorySelectV3Form
         skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Key", HeaderText = "Tuş", Width = 52 });
         var kind = new DataGridViewComboBoxColumn { Name = "Kind", HeaderText = "Tür", Width = 112, FlatStyle = FlatStyle.Flat };
         kind.Items.AddRange(SkillRotation.Kinds);
+        kind.Items.Add(SkillRotation.PartyBuff_);
         skillGrid.Columns.Add(kind);
-        skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "SkillId", HeaderText = "Skill ID", Width = 76 });
+        skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "SkillId", HeaderText = "Buff ID", Width = 76 });
         var target = new DataGridViewComboBoxColumn { Name = "Target", HeaderText = "Hedef türü", Width = 118, FlatStyle = FlatStyle.Flat };
         target.Items.AddRange(SkillRotation.Targets);
         skillGrid.Columns.Add(target);
         skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Mobs", HeaderText = "Mob ≥", Width = 82 });
         skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Seconds", HeaderText = "Süre sn", Width = 76 });
         skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Percent", HeaderText = "HP/MP %", Width = 98 });
+        // the old party member names stay in the data (hidden), so a saved file loses nothing
+        skillGrid.Columns.Add(new DataGridViewTextBoxColumn { Name = "Members", HeaderText = "Parti üyeleri (kullanılmaz)", Width = 190, Visible = false });
         skillGrid.CurrentCellDirtyStateChanged += delegate
         {
             if (skillGrid.IsCurrentCellDirty && skillGrid.CurrentCell is DataGridViewCheckBoxCell)
@@ -130,42 +149,36 @@ sealed partial class MemorySelectV3Form
         };
         skillGrid.CellValueChanged += delegate
         {
-            if (!skillLoading)
+            // the editor of the Skill ve Buff sub-page saves when a box is left, not on every key
+            if (!skillLoading && !skillWriting)
                 SaveSettings();
         };
         skillGrid.DataError += delegate(object sender, DataGridViewDataErrorEventArgs e) { e.ThrowException = false; };
         locked.Add(skillGrid);
         content.Controls.Add(skillGrid);
         row = SkillRow(content);
-        row.Controls.Add(Btn("+ Skill ekle", delegate { AddSkillRow(new SkillSlot { Key = "3" }); }, 120, true, ButtonKind.Primary));
+        row.Controls.Add(Btn("+ Skill ekle", delegate { AddSkillRow(new SkillSlot { Key = NewRowKey() }); }, 120, true, ButtonKind.Primary));
         row.Controls.Add(Btn("− Sil", RemoveSkillRow, 80));
         row.Controls.Add(Btn("▲", delegate { MoveSkillRow(-1); }, 44));
         row.Controls.Add(Btn("▼", delegate { MoveSkillRow(1); }, 44));
         row.Controls.Add(Btn("Buff ID’sini öğren", LearnBuff, 170, false));
-        skillInfo.AutoSize = false;
-        skillInfo.Width = 900;
-        skillInfo.Height = 24;
-        skillInfo.Tag = "muted";
-        skillInfo.Margin = new Padding(0, 2, 0, 0);
-        content.Controls.Add(skillInfo);
-        buffInfo.AutoSize = false;
-        buffInfo.Width = 900;
-        buffInfo.Height = 48;
-        buffInfo.Tag = "muted";
-        buffInfo.Margin = new Padding(0, 0, 0, 6);
-        content.Controls.Add(buffInfo);
+        BuildSkillOverview(fMain);
 
+        content = fHelp;
         content.Controls.Add(SectionTitle("Nasıl çalışır"));
-        var help = new Label { AutoSize = false, Width = 900, Height = 248, Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
+        var help = new Label { AutoSize = false, Width = 820, Height = 280, Tag = "muted", Margin = new Padding(0, 0, 0, 4), Text =
+            "Skill’ler yalnız hotbar tuşuna basılarak kullanılır; bot hiçbir skill’i paket olarak göndermez (skill paketi oyunu çökertiyordu). Oyun penceresi önde olmalı: " +
+            "bu istemci arkadaki pencerede tuşu işlemiyor, oyun arkadayken bot tuş basmaz ve bekler. Pencere simge durumundaysa da bekler.\r\n" +
+            "Skill ve Buff: Saldırı ve Buff listeleri numara sırasıyla gösterilir; satırın oklarıyla (ya da Ctrl + ↑ ↓) sırayı değiştirirsin, kutusuyla açıp kapatırsın, " +
+            "altındaki “Seçili skill” bölümünde hotbar tuşunu (kutuya tıkla, tuşa bas), adı, türü, hedef türünü, mob sayısını, süreyi ve yüzdeyi ayarlarsın. " +
+            "Tuşu olmayan satır turuncu “TUŞ YOK” yazar ve hiç kullanılmaz; çalıştırınca kaç satırın tuşu olmadığı kayda yazılır. Imbue seçicisi adında Imbue geçen satırı açıp kapatır.\r\n" +
             "Saldırı: hedef seçiliyken sırayla basılır. Hedef türü General / Champion / Giant / Unique ... seçilirse yalnız o türdeki canavara basılır; " +
             "o türe özel satır yoksa Hepsi satırları kullanılır. “En az mob”: yakında (14 birim) en az bu kadar canavar varsa basılır (alan hasarı için). Süre = skill’in kendi bekleme süresi.\r\n" +
-            "Buff: Skill ID varsa karakterin gerçek buff listesine bakılır, buff gidince tuş basılır. Skill ID yoksa süre dolunca basılır (0 = çalıştırma başına bir kez). " +
-            "Skill ID’yi “Karakterin skilleri” listesinden seçersin (Skilleri oku → Listeye ekle) ya da “Buff ID’sini öğren” ile bulursun.\r\n" +
-            "Tuşu boş, Skill ID’si dolu satır tuşsuz çalışır: bot skill’i kimliğiyle kullanır ve oyunun önde olması gerekmez. Tuşlu satır tuşa basar.\r\n" +
-            "Acil: can yüzdesi sınırın altına inince ya da “En az mob” kadar canavar etrafı sarınca basılır; Skill ID varsa buff zaten açıksa basılmaz.\r\n" +
+            "Buff: Buff ID (yalnız buff’ın açık olup olmadığını okumak için) varsa karakterin gerçek buff listesine bakılır, buff gidince tuşa basılır; ID hiçbir şey göndermez. " +
+            "Buff ID yoksa süre dolunca basılır (0 = çalıştırma başına bir kez). Buff ID’yi “Buff ID’sini öğren” ile bulursun.\r\n" +
+            "Acil: can yüzdesi sınırın altına inince ya da “En az mob” kadar canavar etrafı sarınca basılır; Buff ID varsa buff zaten açıksa basılmaz.\r\n" +
             "İyileştirme / Mana: HP / MP yüzdesi sınırın altına inince basılır. Öncelik: acil, iyileştirme, mana, buff, saldırı.\r\n" +
-            "Arka plan: tuşlar oyun penceresine Windows mesajıyla gider. Canlı sınamada bu istemci oyun arkadayken tuşu işlemedi (öndeyken işledi); bu yüzden " +
-            "arka planda çalışmak için skill’leri “Karakterin skilleri” listesinden seçip tuşsuz ekle: kimlikle kullanım oyun arkadayken ve gizliyken de çalışır. Pencere simge durumundaysa bekler." };
+            "Eski “Parti buff” satırları (ID ile gönderiyordu) listede durur ama kullanılmaz." };
         content.Controls.Add(help);
         LoadSkillRows(DefaultSkills());
         templateBox.SelectedIndex = 0;
@@ -181,8 +194,9 @@ sealed partial class MemorySelectV3Form
     {
         return new object[]
         {
-            s.On, s.Name ?? "", s.Key, SkillRotation.Kinds.Contains(s.Kind) ? s.Kind : SkillRotation.Attack_, s.SkillId.ToString(),
-            SkillRotation.Targets.Contains(s.Target) ? s.Target : SkillRotation.AnyTarget, s.MinMobs.ToString(), s.Seconds.ToString(), s.Percent.ToString()
+            s.On, s.Name ?? "", s.Key, SkillRotation.Kinds.Contains(s.Kind) || s.Kind == SkillRotation.PartyBuff_ ? s.Kind : SkillRotation.Attack_, s.SkillId.ToString(),
+            SkillRotation.Targets.Contains(s.Target) ? s.Target : SkillRotation.AnyTarget, s.MinMobs.ToString(), s.Seconds.ToString(), s.Percent.ToString(),
+            s.Members ?? ""
         };
     }
 
@@ -199,6 +213,8 @@ sealed partial class MemorySelectV3Form
         {
             skillLoading = false;
         }
+        skillSel = skillGrid.Rows.Count > 0 ? 0 : -1;
+        RefreshSkillViews();
     }
 
     void RemoveSkillRow()
@@ -249,7 +265,8 @@ sealed partial class MemorySelectV3Form
                 Target = CellText(row.Cells["Target"].Value) == "" ? SkillRotation.AnyTarget : CellText(row.Cells["Target"].Value),
                 MinMobs = ToInt(row.Cells["Mobs"].Value, 0),
                 Seconds = ToInt(row.Cells["Seconds"].Value, 0),
-                Percent = ToInt(row.Cells["Percent"].Value, 50)
+                Percent = ToInt(row.Cells["Percent"].Value, 50),
+                Members = CellText(row.Cells["Members"].Value)
             });
         return list;
     }
@@ -259,7 +276,8 @@ sealed partial class MemorySelectV3Form
         return new SkillOptions
         {
             BuffWhileAttacking = optBuffWhileAttacking.Checked, Rearm = optRearm.Checked, InOrder = optInOrder.Checked,
-            Fallback = optFallback.Checked, BuffOnly = optBuffOnly.Checked
+            Fallback = optFallback.Checked, BuffOnly = optBuffOnly.Checked, WeaponSwap = optWeaponSwap.Checked,
+            CastPacePercent = (int)optCastPace.Value
         };
     }
 
@@ -271,6 +289,8 @@ sealed partial class MemorySelectV3Form
         optInOrder.Checked = o.InOrder;
         optFallback.Checked = o.Fallback;
         optBuffOnly.Checked = o.BuffOnly;
+        optWeaponSwap.Checked = o.WeaponSwap;
+        SetValue(optCastPace, o.CastPacePercent < 20 ? 40 : o.CastPacePercent);
     }
 
     void RestoreSkillSettings(V3Settings s)
@@ -392,7 +412,7 @@ sealed partial class MemorySelectV3Form
         if (!useRotation || !RunSendKeys || heldScan != 0 || now < nextKey)
             return false;
         ushort key = rotation.Support(now, SkillContextNow());
-        if (key == 0 || !PressSkill(key, 0))
+        if (key == 0 || !Press(key))
             return false;
         nextKey = now + RunDelay;
         return true;
@@ -431,7 +451,6 @@ sealed partial class MemorySelectV3Form
             }
         }
         BackgroundKeyTestTick(now);
-        CastTestTick(now);
         if (buffInfo.Visible && learnUntil == 0 && bgPhase == 0 && !buffInfo.Text.StartsWith("Skill ID bulundu") && !buffInfo.Text.StartsWith("Arka plan") &&
             !buffInfo.Text.StartsWith("Yeni buff"))
         {
@@ -472,12 +491,9 @@ sealed partial class MemorySelectV3Form
         DataGridViewRow keyRow = skillGrid.CurrentRow;
         if (keyRow == null || SkillRotation.ParseKey(CellText(keyRow.Cells["Key"].Value)) == 0)
         {
-            if (keyRow != null && CellText(keyRow.Cells["Key"].Value).Length == 0 && ToInt(keyRow.Cells["SkillId"].Value, 0) > 0)
-                throw new InvalidOperationException("Seçili satırın tuşu yok: Skill ID’li satır kimlikle kullanılır ve oyun arkadayken de çalışır. " +
-                    "Sınamak için “Kimlikle sına”yı kullan; “Arka plan tuşunu sına” tuşlu satırlar içindir.");
             keyRow = skillGrid.Rows.Cast<DataGridViewRow>().FirstOrDefault(r => SkillRotation.ParseKey(CellText(r.Cells["Key"].Value)) != 0);
             if (keyRow == null)
-                throw new InvalidOperationException("Tuşlu bir skill satırı yok. Tuşsuz (Skill ID’li) satırlar zaten arka planda çalışır; “Kimlikle sına” ile dene.");
+                throw new InvalidOperationException("Hotbar tuşu olan bir skill satırı yok. Önce bir satıra tuş yaz.");
         }
         bgKey = SkillRotation.ParseKey(CellText(keyRow.Cells["Key"].Value));
         if (ClientWindow() == IntPtr.Zero)
@@ -538,8 +554,8 @@ sealed partial class MemorySelectV3Form
             FinishBackgroundTest(true, "ÇALIŞTI. Oyun arkadayken tuş işlendi; arka plan tuşlarını açık bırakabilirsin.");
         else if (now > bgUntil)
             FinishBackgroundTest(false, "ÇALIŞMADI. Tuş gönderildi ama mana düşmedi, yeni buff gelmedi (mana ya da hedef yoksa da böyle olur). " +
-                "Buff kullanan bir satırla tekrar dene. Canlı oyunda ölçüldü: bu istemci oyun arkadayken klavye mesajını işlemiyor (öndeyken işliyor). " +
-                "Arka planda çalışmak için skill’i “Karakterin skilleri” listesinden seçip tuşsuz ekle; kimlikle kullanım arkada da çalışır. Arka plan tuşları kapatıldı.");
+                "Buff kullanan bir satırla tekrar dene. Canlı oyunda ölçüldü: bu istemci oyun arkadayken klavye mesajını işlemiyor (öndeyken işliyor); " +
+                "skill kullanırken oyun penceresi önde kalmalı. Arka plan tuşları kapatıldı.");
     }
 
     // Sends one key to the game window with Windows keyboard messages; the release follows from the release timer.
